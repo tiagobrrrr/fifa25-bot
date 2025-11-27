@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h2>📊 Relatórios e Estatísticas</h2>
+
+<p>Nesta página você pode gerar relatórios consolidados e exportar para Excel.</p>
+
+<hr>
+
+<h3>Gerar Relatório Diário</h3>
+
+<form action="/reports/daily" method="POST">
+    <button style="padding:10px 20px; background:#1e3a8a; color:white; border:none; border-radius:5px;">
+        📄 Baixar Relatório de Hoje (XLSX)
+    </button>
+</form>
+
+<hr>
+
+<h3>Gerar Relatório Personalizado</h3>
+
+<form action="/reports/custom" method="POST">
+    <label>Data Inicial:</label><br>
+    <input type="date" name="start" required style="padding:6px;"><br><br>
+
+    <label>Data Final:</label><br>
+    <input type="date" name="end" required style="padding:6px;"><br><br>
+
+    <button type="submit" style="padding:10px 20px; background:#0f172a; color:white; border:none; border-radius:5px;">
+        📄 Gerar Relatório
+    </button>
+</form>
+
+<hr>
+
+<h3>Enviar Relatório por E-mail</h3>
+
+<form action="/reports/email" method="POST">
+    <label>Enviar relatório diário para o e-mail configurado:</label><br><br>
+
+    <button type="submit" style="padding:10px 20px; background:green; color:white; border:none; border-radius:5px;">
+        ✉️ Enviar por E-mail
+    </button>
+</form>
+
+<hr>
+
+<h3>Resumo de Estatísticas</h3>
+
+{% if stats %}
+<ul>
+    <li><strong>Total de Partidas:</strong> {{ stats.total }}</li>
+    <li><strong>Vitórias:</strong> {{ stats.wins }}</li>
+    <li><strong>Derrotas:</strong> {{ stats.losses }}</li>
+    <li><strong>Gols Marcados:</strong> {{ stats.goals_for }}</li>
+    <li><strong>Gols Sofridos:</strong> {{ stats.goals_against }}</li>
+</ul>
+{% else %}
+<p>Nenhum dado encontrado para estatísticas.</p>
+{% endif %}
+
+{% endblock %}

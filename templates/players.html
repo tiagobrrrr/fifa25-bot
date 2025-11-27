@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h2>👤 Jogadores Monitorados</h2>
+
+<p>Jogadores que serão rastreados pelo bot durante as varreduras.</p>
+
+<hr>
+
+<h3>Adicionar Jogador</h3>
+<form action="/players/add" method="POST">
+    <label>Username (exatamente igual ao site):</label><br>
+    <input type="text" name="username" required style="padding:6px; width:250px;"><br><br>
+
+    <label>Nome para exibição (opcional):</label><br>
+    <input type="text" name="display_name" style="padding:6px; width:250px;"><br><br>
+
+    <button type="submit" style="padding:8px 20px; background:#1e3a8a; color:white; border:none; border-radius:4px;">
+        Adicionar Jogador
+    </button>
+</form>
+
+<hr>
+
+<h3>Lista de Jogadores</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Username</th>
+            <th>Nome (display)</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for p in players %}
+        <tr>
+            <td>{{ p.id }}</td>
+            <td>{{ p.username }}</td>
+            <td>{{ p.display_name if p.display_name else "-" }}</td>
+            <td>
+                <form action="/players/delete/{{ p.id }}" method="POST" onsubmit="return confirm('Tem certeza?');">
+                    <button style="padding:5px 15px; background:red; color:white; border:none; border-radius:4px;">
+                        Remover
+                    </button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+
+        {% if players|length == 0 %}
+        <tr>
+            <td colspan="4">Nenhum jogador adicionado ainda.</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+
+{% endblock %}

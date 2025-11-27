@@ -1,0 +1,22 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+.env.local
+
+# Databases (não subir SQLite para produção)
+*.db
+
+# Logs
+logs/
+
+# Editor configs
+.vscode/
+.idea/

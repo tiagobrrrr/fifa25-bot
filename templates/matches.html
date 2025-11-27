@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h2>📺 Histórico de Partidas</h2>
+
+<p>Mostrando até 200 partidas por página.</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Match ID</th>
+            <th>Jogador</th>
+            <th>Time</th>
+            <th>Oponente</th>
+            <th>Gols</th>
+            <th>Liga</th>
+            <th>Estádio</th>
+            <th>Data</th>
+            <th>Hora</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for m in matches %}
+        <tr>
+            <td>{{ m.match_id }}</td>
+            <td>{{ m.player }}</td>
+            <td>{{ m.team }}</td>
+            <td>{{ m.opponent }}</td>
+            <td>{{ m.goals }} - {{ m.goals_against }}</td>
+            <td>{{ m.league }}</td>
+            <td>{{ m.stadium }}</td>
+            <td>{{ m.date }}</td>
+            <td>{{ m.time }}</td>
+            <td>{{ m.status }}</td>
+        </tr>
+        {% endfor %}
+
+        {% if matches|length == 0 %}
+        <tr>
+            <td colspan="10">Nenhuma partida registrada.</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+
+<br>
+
+<div style="text-align:center; margin-top:20px;">
+    <a href="/matches?page={{ page - 1 }}" 
+       {% if page <= 1 %} style="pointer-events:none; opacity:0.4;" {% endif %}>
+       ⬅️ Página Anterior
+    </a>
+
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+
+    <a href="/matches?page={{ page + 1 }}">
+       Próxima Página ➡️
+    </a>
+</div>
+
+{% endblock %}
