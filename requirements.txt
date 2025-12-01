@@ -5,7 +5,7 @@ pytz==2024.2
 requests==2.31.0
 beautifulsoup4==4.12.2
 openpyxl==3.1.2
-pandas==2.2.2
+pandas==2.1.4
 matplotlib==3.8.2
 python-dotenv==1.0.0
 gunicorn==21.2.0
