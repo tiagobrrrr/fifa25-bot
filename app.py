@@ -115,7 +115,7 @@ def persist_match_if_new(m):
                 team=left.team,
                 opponent=left.opponent,
                 goals=left.goals,
-                goals_against=left.goals_against,
+                goals_againant=left.goals_against,
                 win=left.win,
                 league=left.league,
                 stadium=left.stadium,
@@ -129,7 +129,7 @@ def persist_match_if_new(m):
                 team=right.team,
                 opponent=right.opponent,
                 goals=right.goals,
-                goals_against=right.goals_against,
+                goals_againant=right.goals_against,
                 win=right.win,
                 league=right.league,
                 stadium=right.stadium,
@@ -208,10 +208,15 @@ def start_worker_once():
             app.logger.info("Background worker iniciado")
 
 
-@app.before_first_request
-def setup():
-    db.create_all()
-    start_worker_once()
+# ---------------------------
+#   SETUP COMPATÍVEL COM FLASK 3
+# ---------------------------
+@app.before_request
+def setup_once():
+    if not hasattr(app, "_setup_done"):
+        app._setup_done = True
+        db.create_all()
+        start_worker_once()
 
 
 # ---------------------------
