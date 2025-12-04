@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, session
@@ -7,7 +6,6 @@ from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 import requests
 from bs4 import BeautifulSoup
-from sqlalchemy.exc import OperationalError
 
 # =====================================================================================
 # CONFIG
@@ -17,7 +15,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "default_secret_key")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):  # Render usa formato antigo
+if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
@@ -32,7 +30,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 logging.basicConfig(level=logging.INFO)
-
 
 # =====================================================================================
 # MODELOS
@@ -52,48 +49,22 @@ class Match(db.Model):
 
 
 # =====================================================================================
-# BANCO – SOLUÇÃO DEFINITIVA PARA RENDER
+# CRIAÇÃO AUTOMÁTICA DO BANCO (FUNCIONA NO RENDER)
 # =====================================================================================
 
-def force_fix_render_database():
-    """
-    Aguarda o banco online, remove tabelas antigas e recria 'matches'.
-    Correção definitiva para: relation "matches" does not exist
-    """
+with app.app_context():
+    try:
+        # Remover tabela antiga com nome errado
+        db.engine.execute("DROP TABLE IF EXISTS match CASCADE;")
+        print("[DB] Tabela antiga 'match' removida.")
+    except Exception as e:
+        print("[DB] Aviso ao remover tabela antiga:", e)
 
-    print("\n[DB] Sincronizando banco do Render...")
-
-    with app.app_context():
-
-        # 1. Esperar banco ficar disponível
-        for i in range(30):
-            try:
-                db.engine.execute("SELECT 1;")
-                print("[DB] Banco online!")
-                break
-            except OperationalError:
-                print(f"[DB] Banco indisponível, aguardando... ({i+1}/30)")
-                time.sleep(1)
-        else:
-            print("[DB] ERRO: Banco não ficou disponível a tempo!")
-            return
-
-        # 2. Remover tabelas antigas ou corrompidas
-        try:
-            db.engine.execute("DROP TABLE IF EXISTS match CASCADE;")
-            db.engine.execute("DROP TABLE IF EXISTS matches CASCADE;")
-            print("[DB] Tabelas antigas removidas.")
-        except Exception as e:
-            print("[DB] Aviso ao tentar remover tabelas:", e)
-
-        # 3. Recriar tabela final e correta
-        try:
-            db.create_all()
-            print("[DB] Tabela 'matches' criada com sucesso!")
-        except Exception as e:
-            print("[DB] ERRO ao criar tabela:", e)
-
-        print("[DB] Banco sincronizado.\n")
+    try:
+        db.create_all()
+        print("[DB] Tabela 'matches' criada/verificada com sucesso.")
+    except Exception as e:
+        print("[DB] ERRO ao criar/verificar tabela:", e)
 
 
 # =====================================================================================
@@ -114,7 +85,6 @@ def send_telegram(msg):
     except Exception as e:
         print("[TELEGRAM] Exceção:", e)
 
-
 # =====================================================================================
 # SCRAPER
 # =====================================================================================
@@ -123,7 +93,7 @@ def scrape_matches():
     print("[SCRAPER] Coletando partidas...")
 
     try:
-        html = requests.get("https://football.esportsbattle.com/en", timeout=15).text
+        html = requests.get("https://football.esportsbattle.com/en", timeout=10).text
     except Exception as e:
         print("[SCRAPER] Falha ao acessar o site:", e)
         return []
@@ -152,9 +122,8 @@ def scrape_matches():
     print(f"[SCRAPER] Total encontrado: {len(matches)} partidas.")
     return matches
 
-
 # =====================================================================================
-# SCAN + SAVE
+# SCAN E SAVE
 # =====================================================================================
 
 def scan_and_save():
@@ -178,7 +147,6 @@ def scan_and_save():
         except Exception as e:
             print("[SCAN] ERRO:", e)
 
-
 # =====================================================================================
 # SCHEDULER
 # =====================================================================================
@@ -191,7 +159,6 @@ if RUN_SCRAPER:
     print(f"[SCHEDULER] Ativo — rodando a cada {SCAN_INTERVAL}s")
 else:
     print("[SCHEDULER] Desativado")
-
 
 # =====================================================================================
 # ROTAS
@@ -233,9 +200,8 @@ def logout():
 
 
 # =====================================================================================
-# START
+# START (LOCAL)
 # =====================================================================================
 
 if __name__ == "__main__":
-    force_fix_render_database()
     app.run(host="0.0.0.0", port=10000)
