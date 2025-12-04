@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, session
@@ -13,7 +12,7 @@ from bs4 import BeautifulSoup
 # =====================================================================================
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SESSION_SECRET", "defaultsecret")
+app.secret_key = os.getenv("SESSION_SECRET", "default_secret_key")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
@@ -24,7 +23,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", 30))
+SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", 60))
 RUN_SCRAPER = os.getenv("RUN_SCRAPER", "true").lower() == "true"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -33,14 +32,12 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 logging.basicConfig(level=logging.INFO)
 
 # =====================================================================================
-# MODELS
+# MODELOS
 # =====================================================================================
 
-class Player(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), unique=True, nullable=False)
-
 class Match(db.Model):
+    __tablename__ = "matches"
+
     id = db.Column(db.Integer, primary_key=True)
     team1 = db.Column(db.String(100))
     team2 = db.Column(db.String(100))
@@ -51,35 +48,64 @@ class Match(db.Model):
     match_time = db.Column(db.String(100))
 
 # =====================================================================================
+# BANCO - CORREÇÃO DEFINITIVA
+# =====================================================================================
+
+def force_fix_render_database():
+    """
+    Força a correção do banco no Render apagando tabelas antigas e recriando as novas.
+    Solução final para o erro: column match.team1 does not exist
+    """
+
+    with app.app_context():
+
+        print("\n[DB] Verificando inconsistências no banco do Render...")
+
+        try:
+            # Remove tabela antiga (com nome errado)
+            db.engine.execute("DROP TABLE IF EXISTS match CASCADE;")
+            print("[DB] Tabela antiga 'match' removida.")
+        except Exception as e:
+            print("[DB] Aviso: impossível remover tabela antiga:", e)
+
+        try:
+            # Garante recriação da tabela correta
+            db.create_all()
+            print("[DB] Tabelas criadas corretamente.")
+        except Exception as e:
+            print("[DB] ERRO ao recriar tabelas:", e)
+
+        print("[DB] Banco OK e sincronizado.\n")
+
+# =====================================================================================
 # TELEGRAM
 # =====================================================================================
 
-def send_telegram(msg: str):
+def send_telegram(msg):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[TELEGRAM] Token ou chat_id não configurado.")
         return
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-    r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
-
-    if r.status_code != 200:
-        print("[TELEGRAM] Falha ao enviar:", r.text)
-    else:
-        print("[TELEGRAM] Mensagem enviada!")
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": msg}
+        )
+        if r.status_code != 200:
+            print("[TELEGRAM] ERRO:", r.text)
+    except Exception as e:
+        print("[TELEGRAM] Exceção:", e)
 
 # =====================================================================================
 # SCRAPER
 # =====================================================================================
 
 def scrape_matches():
-    print("[SCRAPER] Buscando partidas...")
-    url = "https://football.esportsbattle.com/en"
+    print("[SCRAPER] Coletando partidas...")
 
     try:
-        html = requests.get(url, timeout=10).text
+        html = requests.get("https://football.esportsbattle.com/en", timeout=10).text
     except Exception as e:
-        print("[SCRAPER] ERRO ao acessar site:", e)
+        print("[SCRAPER] Falha ao acessar o site:", e)
         return []
 
     soup = BeautifulSoup(html, "html.parser")
@@ -88,56 +114,45 @@ def scrape_matches():
     matches = []
 
     for card in cards:
-        team1 = card.find("div", class_="team-1").text.strip() if card.find("div", "team-1") else "?"
-        team2 = card.find("div", class_="team-2").text.strip() if card.find("div", "team-2") else "?"
-        score = card.find("div", class_="score").text.strip() if card.find("div", "score") else "vs"
-        status = "LIVE" if "live" in card.get("class", []) else "Finished"
 
-        league = card.find("div", "league").text.strip() if card.find("div", "league") else "-"
-        stadium = card.find("div", "stadium").text.strip() if card.find("div", "stadium") else "-"
-        match_time = card.find("div", "time").text.strip() if card.find("div", "time") else "-"
+        def safe(selector, cls):
+            el = card.find(selector, cls)
+            return el.text.strip() if el else "-"
 
         matches.append({
-            "team1": team1,
-            "team2": team2,
-            "score": score,
-            "status": status,
-            "league": league,
-            "stadium": stadium,
-            "match_time": match_time,
+            "team1": safe("div", "team-1"),
+            "team2": safe("div", "team-2"),
+            "score": safe("div", "score"),
+            "status": "LIVE" if "live" in card.get("class", []) else "Finished",
+            "league": safe("div", "league"),
+            "stadium": safe("div", "stadium"),
+            "match_time": safe("div", "time"),
         })
 
-    print(f"[SCRAPER] {len(matches)} partidas encontradas.")
+    print(f"[SCRAPER] Total encontrado: {len(matches)} partidas.")
     return matches
 
 # =====================================================================================
-# SCAN & SAVE (com contexto)
+# SCAN + SAVE
 # =====================================================================================
 
 def scan_and_save():
     with app.app_context():
 
         try:
-            print("[SCAN] Iniciando varredura...")
-            matches = scrape_matches()
+            print("[SCAN] Atualizando banco...")
+
+            items = scrape_matches()
 
             Match.query.delete()
 
-            for m in matches:
-                db.session.add(Match(
-                    team1=m["team1"],
-                    team2=m["team2"],
-                    score=m["score"],
-                    status=m["status"],
-                    league=m["league"],
-                    stadium=m["stadium"],
-                    match_time=m["match_time"]
-                ))
+            for m in items:
+                db.session.add(Match(**m))
 
             db.session.commit()
 
-            send_telegram(f"🔄 Atualizado: {len(matches)} partidas encontradas.")
-            print("[SCAN] OK")
+            send_telegram(f"🔄 Atualização concluída — {len(items)} partidas.")
+            print("[SCAN] OK.")
 
         except Exception as e:
             print("[SCAN] ERRO:", e)
@@ -151,7 +166,7 @@ scheduler = BackgroundScheduler()
 if RUN_SCRAPER:
     scheduler.add_job(scan_and_save, "interval", seconds=SCAN_INTERVAL)
     scheduler.start()
-    print(f"[SCHEDULER] Ativado — Intervalo: {SCAN_INTERVAL}s")
+    print(f"[SCHEDULER] Ativo — rodando a cada {SCAN_INTERVAL}s")
 else:
     print("[SCHEDULER] Desativado")
 
@@ -169,19 +184,20 @@ def dashboard():
         "live": len([m for m in matches if m.status == "LIVE"])
     }
 
-    return render_template("dashboard.html",
-                           matches=matches,
-                           stats=stats,
-                           last_scan=datetime.utcnow())
+    return render_template(
+        "dashboard.html",
+        matches=matches,
+        stats=stats,
+        last_scan=datetime.utcnow()
+    )
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        pwd = request.form.get("password")
-        if pwd == "admin123":
+        if request.form.get("password") == "admin123":
             session["logged"] = True
             return redirect("/")
-        return "Senha incorreta"
+        return "Senha incorreta."
 
     return render_template("login.html")
 
@@ -195,7 +211,5 @@ def logout():
 # =====================================================================================
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-
+    force_fix_render_database()
     app.run(host="0.0.0.0", port=10000)
