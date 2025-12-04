@@ -78,8 +78,8 @@ def scrape_matches():
 
     try:
         html = requests.get(url, timeout=10).text
-    except:
-        print("[SCRAPER] ERRO ao acessar site.")
+    except Exception as e:
+        print("[SCRAPER] ERRO ao acessar site:", e)
         return []
 
     soup = BeautifulSoup(html, "html.parser")
@@ -115,7 +115,7 @@ def scrape_matches():
 # =====================================================================================
 
 def scan_and_save():
-    with app.app_context():  # <<< CORREÇÃO CRÍTICA
+    with app.app_context():
 
         try:
             print("[SCAN] Iniciando varredura...")
@@ -199,4 +199,3 @@ if __name__ == "__main__":
         db.create_all()
 
     app.run(host="0.0.0.0", port=10000)
-
