@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 app = Flask(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "defaultsecret")
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
@@ -40,7 +40,6 @@ class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
 
-
 class Match(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     team1 = db.Column(db.String(100))
@@ -51,9 +50,8 @@ class Match(db.Model):
     stadium = db.Column(db.String(100))
     match_time = db.Column(db.String(100))
 
-
 # =====================================================================================
-# SCRAPER
+# TELEGRAM
 # =====================================================================================
 
 def send_telegram(msg: str):
@@ -66,23 +64,22 @@ def send_telegram(msg: str):
     r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
 
     if r.status_code != 200:
-        print("[TELEGRAM] Falha:", r.text)
+        print("[TELEGRAM] Falha ao enviar:", r.text)
     else:
         print("[TELEGRAM] Mensagem enviada!")
 
+# =====================================================================================
+# SCRAPER
+# =====================================================================================
 
 def scrape_matches():
-    """
-    Coleta partidas do site football.esportsbattle.com
-    """
     print("[SCRAPER] Buscando partidas...")
-
     url = "https://football.esportsbattle.com/en"
 
     try:
         html = requests.get(url, timeout=10).text
     except:
-        print("[SCRAPER] ERRO ao acessar o site.")
+        print("[SCRAPER] ERRO ao acessar site.")
         return []
 
     soup = BeautifulSoup(html, "html.parser")
@@ -91,14 +88,14 @@ def scrape_matches():
     matches = []
 
     for card in cards:
-        team1 = card.find("div", class_="team-1").text.strip() if card.find("div", class_="team-1") else "?"
-        team2 = card.find("div", class_="team-2").text.strip() if card.find("div", class_="team-2") else "?"
-        score = card.find("div", class_="score").text.strip() if card.find("div", class_="score") else "vs"
+        team1 = card.find("div", class_="team-1").text.strip() if card.find("div", "team-1") else "?"
+        team2 = card.find("div", class_="team-2").text.strip() if card.find("div", "team-2") else "?"
+        score = card.find("div", class_="score").text.strip() if card.find("div", "score") else "vs"
         status = "LIVE" if "live" in card.get("class", []) else "Finished"
 
-        league = card.find("div", class_="league").text.strip() if card.find("div", class_="league") else "-"
-        stadium = card.find("div", class_="stadium").text.strip() if card.find("div", class_="stadium") else "-"
-        match_time = card.find("div", class_="time").text.strip() if card.find("div", class_="time") else "-"
+        league = card.find("div", "league").text.strip() if card.find("div", "league") else "-"
+        stadium = card.find("div", "stadium").text.strip() if card.find("div", "stadium") else "-"
+        match_time = card.find("div", "time").text.strip() if card.find("div", "time") else "-"
 
         matches.append({
             "team1": team1,
@@ -113,29 +110,21 @@ def scrape_matches():
     print(f"[SCRAPER] {len(matches)} partidas encontradas.")
     return matches
 
-
 # =====================================================================================
-# PERSISTÊNCIA COM CONTEXTO DO FLASK
+# SCAN & SAVE (com contexto)
 # =====================================================================================
 
 def scan_and_save():
-    """
-    Função chamada pelo scheduler.  
-    Agora ela roda **dentro do contexto da aplicação**, evitando o erro:
-    "Working outside of application context".
-    """
-    with app.app_context():
+    with app.app_context():  # <<< CORREÇÃO CRÍTICA
 
         try:
-            print("[SCAN] Iniciando varredura de partidas...")
-
+            print("[SCAN] Iniciando varredura...")
             matches = scrape_matches()
 
-            # limpa a tabela antes de inserir novos dados
             Match.query.delete()
 
             for m in matches:
-                row = Match(
+                db.session.add(Match(
                     team1=m["team1"],
                     team2=m["team2"],
                     score=m["score"],
@@ -143,18 +132,15 @@ def scan_and_save():
                     league=m["league"],
                     stadium=m["stadium"],
                     match_time=m["match_time"]
-                )
-                db.session.add(row)
+                ))
 
             db.session.commit()
 
-            send_telegram(f"⏱️ Bot atualizado — {len(matches)} partidas encontradas.")
-
-            print("[SCAN] Finalizado.")
+            send_telegram(f"🔄 Atualizado: {len(matches)} partidas encontradas.")
+            print("[SCAN] OK")
 
         except Exception as e:
             print("[SCAN] ERRO:", e)
-
 
 # =====================================================================================
 # SCHEDULER
@@ -165,10 +151,9 @@ scheduler = BackgroundScheduler()
 if RUN_SCRAPER:
     scheduler.add_job(scan_and_save, "interval", seconds=SCAN_INTERVAL)
     scheduler.start()
-    print(f"[SCHEDULER] Ativado. Intervalo: {SCAN_INTERVAL}s")
+    print(f"[SCHEDULER] Ativado — Intervalo: {SCAN_INTERVAL}s")
 else:
-    print("[SCHEDULER] Desativado.")
-
+    print("[SCHEDULER] Desativado")
 
 # =====================================================================================
 # ROTAS
@@ -184,26 +169,26 @@ def dashboard():
         "live": len([m for m in matches if m.status == "LIVE"])
     }
 
-    return render_template("dashboard.html", matches=matches, stats=stats, last_scan=datetime.utcnow())
-
+    return render_template("dashboard.html",
+                           matches=matches,
+                           stats=stats,
+                           last_scan=datetime.utcnow())
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         pwd = request.form.get("password")
-        if pwd == "admin123":  # você pode usar variável de ambiente depois
+        if pwd == "admin123":
             session["logged"] = True
             return redirect("/")
         return "Senha incorreta"
 
     return render_template("login.html")
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
-
 
 # =====================================================================================
 # START
@@ -214,3 +199,4 @@ if __name__ == "__main__":
         db.create_all()
 
     app.run(host="0.0.0.0", port=10000)
+
