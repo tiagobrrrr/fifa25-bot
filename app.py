@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, session
@@ -6,6 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy.exc import OperationalError
 
 # =====================================================================================
 # CONFIG
@@ -15,7 +17,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "default_secret_key")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):
+if DATABASE_URL.startswith("postgres://"):  # Render usa formato antigo
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
@@ -30,6 +32,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 logging.basicConfig(level=logging.INFO)
+
 
 # =====================================================================================
 # MODELOS
@@ -47,35 +50,51 @@ class Match(db.Model):
     stadium = db.Column(db.String(100))
     match_time = db.Column(db.String(100))
 
+
 # =====================================================================================
-# BANCO - CORREÇÃO DEFINITIVA
+# BANCO – SOLUÇÃO DEFINITIVA PARA RENDER
 # =====================================================================================
 
 def force_fix_render_database():
     """
-    Força a correção do banco no Render apagando tabelas antigas e recriando as novas.
-    Solução final para o erro: column match.team1 does not exist
+    Aguarda o banco online, remove tabelas antigas e recria 'matches'.
+    Correção definitiva para: relation "matches" does not exist
     """
+
+    print("\n[DB] Sincronizando banco do Render...")
 
     with app.app_context():
 
-        print("\n[DB] Verificando inconsistências no banco do Render...")
+        # 1. Esperar banco ficar disponível
+        for i in range(30):
+            try:
+                db.engine.execute("SELECT 1;")
+                print("[DB] Banco online!")
+                break
+            except OperationalError:
+                print(f"[DB] Banco indisponível, aguardando... ({i+1}/30)")
+                time.sleep(1)
+        else:
+            print("[DB] ERRO: Banco não ficou disponível a tempo!")
+            return
 
+        # 2. Remover tabelas antigas ou corrompidas
         try:
-            # Remove tabela antiga (com nome errado)
             db.engine.execute("DROP TABLE IF EXISTS match CASCADE;")
-            print("[DB] Tabela antiga 'match' removida.")
+            db.engine.execute("DROP TABLE IF EXISTS matches CASCADE;")
+            print("[DB] Tabelas antigas removidas.")
         except Exception as e:
-            print("[DB] Aviso: impossível remover tabela antiga:", e)
+            print("[DB] Aviso ao tentar remover tabelas:", e)
 
+        # 3. Recriar tabela final e correta
         try:
-            # Garante recriação da tabela correta
             db.create_all()
-            print("[DB] Tabelas criadas corretamente.")
+            print("[DB] Tabela 'matches' criada com sucesso!")
         except Exception as e:
-            print("[DB] ERRO ao recriar tabelas:", e)
+            print("[DB] ERRO ao criar tabela:", e)
 
-        print("[DB] Banco OK e sincronizado.\n")
+        print("[DB] Banco sincronizado.\n")
+
 
 # =====================================================================================
 # TELEGRAM
@@ -95,6 +114,7 @@ def send_telegram(msg):
     except Exception as e:
         print("[TELEGRAM] Exceção:", e)
 
+
 # =====================================================================================
 # SCRAPER
 # =====================================================================================
@@ -103,7 +123,7 @@ def scrape_matches():
     print("[SCRAPER] Coletando partidas...")
 
     try:
-        html = requests.get("https://football.esportsbattle.com/en", timeout=10).text
+        html = requests.get("https://football.esportsbattle.com/en", timeout=15).text
     except Exception as e:
         print("[SCRAPER] Falha ao acessar o site:", e)
         return []
@@ -132,6 +152,7 @@ def scrape_matches():
     print(f"[SCRAPER] Total encontrado: {len(matches)} partidas.")
     return matches
 
+
 # =====================================================================================
 # SCAN + SAVE
 # =====================================================================================
@@ -157,6 +178,7 @@ def scan_and_save():
         except Exception as e:
             print("[SCAN] ERRO:", e)
 
+
 # =====================================================================================
 # SCHEDULER
 # =====================================================================================
@@ -169,6 +191,7 @@ if RUN_SCRAPER:
     print(f"[SCHEDULER] Ativo — rodando a cada {SCAN_INTERVAL}s")
 else:
     print("[SCHEDULER] Desativado")
+
 
 # =====================================================================================
 # ROTAS
@@ -191,6 +214,7 @@ def dashboard():
         last_scan=datetime.utcnow()
     )
 
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -201,10 +225,12 @@ def login():
 
     return render_template("login.html")
 
+
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
+
 
 # =====================================================================================
 # START
