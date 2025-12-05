@@ -1,102 +1,76 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<h2>Dashboard — Partidas de Hoje</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0">Dashboard — Partidas de Hoje</h4>
+    <small class="text-muted">
+      Última varredura:
+      {% if last_scan %} {{ last_scan.strftime("%d/%m/%Y %H:%M:%S") }} {% else %} Nunca executado {% endif %}
+    </small>
+  </div>
 
-<p><strong>Última varredura do bot:</strong>
-    {% if last_scan %}
-        {{ last_scan.strftime("%d/%m/%Y %H:%M:%S") }}
-    {% else %}
-        Nunca executado
-    {% endif %}
-</p>
+  <div>
+    <a href="/matches" class="btn btn-sm btn-outline-primary">Ver todas partidas</a>
+    <a href="/reports" class="btn btn-sm btn-outline-secondary">Relatórios</a>
+  </div>
+</div>
 
-<hr>
-
-<h3>🔴 Partidas Ao Vivo</h3>
-
-<table>
-    <thead>
+<div class="row gy-3">
+  <div class="col-lg-8">
+    <h6>🔴 Partidas Ao Vivo</h6>
+    <table class="table table-sm table-hover">
+      <thead class="table-light">
         <tr>
-            <th>Match ID</th>
-            <th>Jogador</th>
-            <th>Time</th>
-            <th>Oponente</th>
-            <th>Gols</th>
-            <th>Status</th>
+          <th>ID</th>
+          <th>Time 1</th>
+          <th>Time 2</th>
+          <th>Placar</th>
+          <th>Liga</th>
+          <th>Horário</th>
+          <th>Status</th>
         </tr>
-    </thead>
-    <tbody>
-        {% for m in matches if m.status in ["Live", "Started", "live", "started"] %}
-        <tr>
-            <td>{{ m.match_id }}</td>
-            <td>{{ m.player }}</td>
-            <td>{{ m.team }}</td>
-            <td>{{ m.opponent }}</td>
-            <td>{{ m.goals }} - {{ m.goals_against }}</td>
-            <td><span style="color: red; font-weight: bold;">{{ m.status }}</span></td>
-        </tr>
-        {% endfor %}
-        {% if not matches %}
-        <tr><td colspan="6">Nenhuma partida encontrada.</td></tr>
-        {% endif %}
-    </tbody>
-</table>
-
-<hr>
-
-<h3>📅 Partidas do Dia</h3>
-
-<table>
-    <thead>
-        <tr>
-            <th>Match ID</th>
-            <th>Jogador</th>
-            <th>Time</th>
-            <th>Oponente</th>
-            <th>Gols</th>
-            <th>Liga</th>
-            <th>Estádio</th>
-            <th>Data</th>
-            <th>Hora</th>
-            <th>Status</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for m in matches %}
-        <tr>
-            <td>{{ m.match_id }}</td>
-            <td>{{ m.player }}</td>
-            <td>{{ m.team }}</td>
-            <td>{{ m.opponent }}</td>
-            <td>{{ m.goals }} - {{ m.goals_against }}</td>
+      </thead>
+      <tbody>
+        {% set live_matches = [m for m in matches if m.status and m.status.lower() == 'live'] %}
+        {% if live_matches %}
+          {% for m in live_matches %}
+          <tr>
+            <td>{{ m.id }}</td>
+            <td>{{ m.team1 }}</td>
+            <td>{{ m.team2 }}</td>
+            <td>{{ m.score }}</td>
             <td>{{ m.league }}</td>
-            <td>{{ m.stadium }}</td>
-            <td>{{ m.date }}</td>
-            <td>{{ m.time }}</td>
-            <td>{{ m.status }}</td>
-        </tr>
-        {% endfor %}
-        {% if not matches %}
-        <tr><td colspan="10">Nenhuma partida encontrada hoje.</td></tr>
+            <td>{{ m.match_time }}</td>
+            <td><span class="live-badge">LIVE</span></td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="7" class="text-muted">Nenhuma partida ao vivo no momento.</td></tr>
         {% endif %}
-    </tbody>
-</table>
+      </tbody>
+    </table>
+  </div>
 
-<hr>
-
-<h3>📊 Estatísticas do Dia</h3>
-
-{% if stats %}
-<ul>
-    <li><strong>Total de Partidas:</strong> {{ stats.total }}</li>
-    <li><strong>Vitórias:</strong> {{ stats.wins }}</li>
-    <li><strong>Derrotas:</strong> {{ stats.losses }}</li>
-    <li><strong>Gols Marcados:</strong> {{ stats.goals_for }}</li>
-    <li><strong>Gols Sofridos:</strong> {{ stats.goals_against }}</li>
-</ul>
-{% else %}
-<p>Nenhuma estatística disponível.</p>
-{% endif %}
+  <div class="col-lg-4">
+    <h6>📊 Estatísticas Rápidas</h6>
+    <div class="list-group">
+      <div class="list-group-item d-flex justify-content-between align-items-center">
+        Total de partidas
+        <span class="badge bg-primary rounded-pill">{{ stats.total }}</span>
+      </div>
+      <div class="list-group-item d-flex justify-content-between align-items-center">
+        Ao vivo
+        <span class="badge bg-danger rounded-pill">{{ stats.live }}</span>
+      </div>
+      <div class="list-group-item d-flex justify-content-between align-items-center">
+        Finalizadas
+        <span class="badge bg-secondary rounded-pill">{{ stats.total - stats.live }}</span>
+      </div>
+    </div>
+    <hr>
+    <a href="/players" class="btn btn-sm btn-primary w-100 mt-2">Gerenciar Jogadores</a>
+  </div>
+</div>
 
 {% endblock %}
