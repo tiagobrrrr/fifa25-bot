@@ -4,11 +4,7 @@ SQLAlchemy==2.0.22
 psycopg2-binary==2.9.9
 requests==2.31.0
 beautifulsoup4==4.12.2
-
-# FIX numpy/pandas incompatibility
-numpy==1.26.4
-pandas==2.0.3
-
+pandas==1.5.3
 python-dotenv==1.0.0
 APScheduler==3.10.4
 selenium==4.15.2
