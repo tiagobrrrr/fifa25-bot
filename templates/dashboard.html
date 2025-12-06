@@ -32,7 +32,10 @@
         </tr>
       </thead>
       <tbody>
-        {% set live_matches = [m for m in matches if m.status and m.status.lower() == 'live'] %}
+
+        {# CORREÇÃO AQUI — Jinja2 NÃO ACEITA list comprehension #}
+        {% set live_matches = matches | selectattr("status", "equalto", "Live") | list %}
+
         {% if live_matches %}
           {% for m in live_matches %}
           <tr>
