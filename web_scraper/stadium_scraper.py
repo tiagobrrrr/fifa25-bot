@@ -3,225 +3,226 @@ import time
 import logging
 import requests
 from bs4 import BeautifulSoup
+import re
+import hashlib
+from typing import Tuple, List, Dict, Optional
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
+# selenium imports (used only if available / possible)
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+    SELENIUM_AVAILABLE = True
+except Exception:
+    SELENIUM_AVAILABLE = False
+    # don't fail import — we'll fallback to requests
 
-logger = logging.getLogger("stadium_scraper")
-logger.setLevel(logging.INFO)
+log = logging.getLogger("stadium_scraper")
+DEFAULT_URL = "https://football.esportsbattle.com/en"
 
+def slugify(name: str) -> str:
+    if not name:
+        return "unknown"
+    s = re.sub(r'[\\/*?:"<>|]', "_", name)
+    s = re.sub(r"\s+", "_", s)
+    return s.strip()[:100]
+
+def make_match_id(d: dict) -> str:
+    key = f"{d.get('stadium','')}_{d.get('team1','')}_{d.get('team2','')}_{d.get('match_time','')}_{d.get('score','')}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()
 
 class StadiumScraper:
-    def __init__(self, url="https://football.esportsbattle.com/en", wait_seconds: int = 6):
-        """
-        wait_seconds: tempo para aguardar a página carregar no Selenium.
-        """
-        self.url = url
-        self.wait_seconds = wait_seconds
+    """
+    Robust stadium scraper:
+    - Prefer Selenium (if available and Chrome binary exists).
+    - If Selenium not available or Chrome missing, fallback to requests + BS4.
+    - parse() returns (locations_map, matches_list).
+    """
 
-    def _get_driver(self):
+    def __init__(self, url: str = DEFAULT_URL, wait_seconds: int = 6, force_requests: bool = False):
+        self.url = url
+        self.wait_seconds = max(1, int(wait_seconds or 1))
+        self.force_requests = bool(force_requests)
+
+    # -------------------------
+    # Selenium driver builder
+    # -------------------------
+    def _create_selenium_driver(self):
+        if not SELENIUM_AVAILABLE:
+            raise RuntimeError("Selenium/webdriver-manager not available in environment.")
+
         opts = Options()
-        # Headless moderno
-        opts.add_argument("--headless=new")
+        # modern headless arg: use plain --headless to be compatible
+        opts.add_argument("--headless")
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("--disable-gpu")
         opts.add_argument("--window-size=1920,1080")
-        # evita logs do Chromium (opcional)
         opts.add_argument("--log-level=3")
+        # avoid automation banners
+        opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+        opts.add_experimental_option("useAutomationExtension", False)
 
-        # instala driver via webdriver-manager
         service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=opts)
+        return driver
 
-        return webdriver.Chrome(service=service, options=opts)
-
-    def fetch_page_with_selenium(self):
-        driver = None
-        try:
-            driver = self._get_driver()
-            driver.get(self.url)
-            time.sleep(self.wait_seconds)
-            html = driver.page_source
-            return html
-        finally:
-            if driver:
+    # -------------------------
+    # Fetch page (selenium preferred, fallback to requests)
+    # -------------------------
+    def fetch_page(self) -> Optional[str]:
+        # If forced to requests, skip selenium entirely
+        if not self.force_requests and SELENIUM_AVAILABLE:
+            try:
+                log.info("[stadium_scraper] Trying Selenium to fetch page.")
+                driver = self._create_selenium_driver()
                 try:
-                    driver.quit()
-                except Exception:
-                    pass
+                    driver.get(self.url)
+                    time.sleep(self.wait_seconds)
+                    html = driver.page_source
+                    log.info("[stadium_scraper] Selenium fetch successful.")
+                    return html
+                finally:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.warning("[stadium_scraper] Selenium fetch failed, falling back to requests: %s", e)
 
-    def fetch_page_with_requests(self):
+        # fallback: requests
         try:
-            r = requests.get(self.url, timeout=12, headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-            })
+            log.info("[stadium_scraper] Using requests fallback to fetch page.")
+            headers = {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114 Safari/537.36"
+            }
+            r = requests.get(self.url, headers=headers, timeout=12)
             r.raise_for_status()
             return r.text
         except Exception as e:
-            logger.warning("[SCRAPER] requests fetch failed: %s", e)
+            log.error("[stadium_scraper] requests fetch failed: %s", e)
             return None
 
-    def fetch_page(self):
-        """
-        Tenta Selenium primeiro. Se houver erro de WebDriver (por ex. sem binário Chrome),
-        faz fallback para requests.
-        """
-        try:
-            html = self.fetch_page_with_selenium()
-            if html:
-                logger.info("[SCRAPER] fetch_page: usando Selenium")
-                return html
-        except WebDriverException as e:
-            # erro típico: cannot find Chrome binary
-            logger.warning("[SCRAPER] Selenium indisponível: %s", e)
-        except Exception as e:
-            logger.warning("[SCRAPER] Selenium erro: %s", e)
-
-        # fallback
-        html = self.fetch_page_with_requests()
-        if html:
-            logger.info("[SCRAPER] fetch_page: usando requests fallback")
-        else:
-            logger.error("[SCRAPER] fetch_page: falha total ao obter HTML")
-        return html
-
-    def parse(self, html: str):
-        """
-        Parse genérico e robusto — tenta encontrar cards/partidas. Retorna (locations_map, matches_list).
-        Cada match é dicionário com chaves: stadium, league, match_time, team1, player1, team2, player2, score, status, match_id
-        """
+    # -------------------------
+    # Parser — adapt to site structure but resilient
+    # returns (locations_map, matches_list)
+    # -------------------------
+    def parse(self, html: Optional[str]) -> Tuple[Dict[str, str], List[dict]]:
         if not html:
             return {}, []
 
         soup = BeautifulSoup(html, "html.parser")
-
-        # Tenta extrair mapa de localizações (se houver)
         locations = {}
-        # vários sites usam data attributes diferentes; tentamos localizar qualquer bloco 'location' ou 'stadium'
-        for loc in soup.find_all(attrs={"data-location": True}):
-            lid = loc.get("data-location")
-            text = loc.get_text(strip=True)
-            if lid:
-                locations[lid] = text
-
         matches = []
 
-        # tentativa 1: procurar por cards mais comuns (match-card / event-card / online-matches)
+        # Try to extract stadium/location mappings if present
+        # Different versions of the site may store locations in a section; try common locations
+        try:
+            loc_nodes = soup.select("[data-location-id], [data-id].location, .locations-list, .locations")
+            for n in loc_nodes:
+                lid = n.get("data-location-id") or n.get("data-id") or n.get("id")
+                if not lid:
+                    continue
+                name = n.get_text(strip=True)
+                if name:
+                    locations[str(lid)] = name
+        except Exception:
+            pass
+
+        # Find match cards - try multiple plausible selectors to be robust
         card_selectors = [
-            {"name": "div", "class_": lambda v: v and ("match-card" in v or "event-card" in v or "online-matches-match" in v)},
-            {"name": "div", "class_": lambda v: v and ("match" in v and "card" in v)},
-            {"name": "article", "class_": lambda v: v and "match" in v}
+            ".match-card", ".event-card", ".online-match", ".match-item", ".card.match"
         ]
 
         cards = []
         for sel in card_selectors:
-            found = soup.find_all(sel["name"], class_=sel["class_"])
+            found = soup.select(sel)
             if found:
-                cards.extend(found)
+                cards = found
+                break
 
-        # fallback: toda vez que não encontre card, tentamos identificar linhas de tabela
+        # If none found, fallback to any div that looks like a match container
         if not cards:
-            # procurar por tabelas com colunas 'Time' ou 'Placar'
-            tables = soup.find_all("table")
-            for t in tables:
-                # heurística: tem header com 'Placar' ou 'Time'
-                header = t.find("thead")
-                text_head = header.get_text(" ").lower() if header else ""
-                if "placar" in text_head or "time" in text_head or "score" in text_head:
-                    rows = t.find_all("tr")
-                    for r in rows[1:]:
-                        cols = [c.get_text(strip=True) for c in r.find_all(["td", "th"])]
-                        if len(cols) >= 4:
-                            matches.append({
-                                "stadium": "Unknown",
-                                "league": "-",
-                                "match_time": cols[-2] if len(cols) >= 4 else "-",
-                                "team1": cols[0],
-                                "player1": "-",
-                                "team2": cols[1] if len(cols) > 1 else "-",
-                                "player2": "-",
-                                "score": cols[2] if len(cols) > 2 else "-",
-                                "status": "Live" if "live" in " ".join(cols).lower() else "Scheduled",
-                                "match_id": None
-                            })
-                    return locations, matches
+            cards = soup.find_all("div", class_=lambda v: v and ("match" in v or "event" in v))
 
-        # parse cards
         for card in cards:
             try:
-                # estádio
+                # stadium
                 stadium = "-"
-                # várias páginas colocam localização em atributo data-location / data-id etc
+                # check data attributes first
                 for attr in ("data-location", "data-location-id", "data-id", "data-loc"):
                     if card.get(attr):
-                        stadium = locations.get(card.get(attr), card.get(attr))
+                        stadium = locations.get(card.get(attr)) or card.get(attr)
                         break
-                if stadium == "-":
-                    # procurar elemento com texto 'location' ou 'stadium'
-                    el = card.find(class_=lambda v: v and ("location" in v or "stadium" in v))
+
+                if stadium == "-" or not stadium:
+                    # try common child selectors
+                    el = card.select_one(".stadium, .location, .match-location, .event-card__location, .event-card__venue")
                     if el:
                         stadium = el.get_text(strip=True)
 
                 # league / time
-                league = "-"
-                el = card.find(class_=lambda v: v and ("league" in v or "competition" in v or "subcaption" in v))
-                if el:
-                    league = el.get_text(strip=True)
+                league_el = card.select_one(".league, .competition, .event-card__league, .subcaption-2")
+                league = league_el.get_text(strip=True) if league_el else "-"
 
-                # match_time
-                match_time = "-"
-                el = card.find(class_=lambda v: v and ("time" in v or "hour" in v or "date" in v))
-                if el:
-                    match_time = el.get_text(strip=True)
+                time_el = card.select_one(".time, .event-card__time, .subcaption-1, .match-time")
+                match_time = time_el.get_text(strip=True) if time_el else "-"
 
-                # score
-                score = "-"
-                el = card.find(class_=lambda v: v and ("score" in v or "result" in v))
-                if el:
-                    score = el.get_text(strip=True)
-
-                # teams / players: tentamos vários padrões
-                team1 = team2 = player1 = player2 = "-"
-                # procurar blocos com "team-1"/"team-2" ou "player" classes
-                left = card.find(class_=lambda v: v and ("team-1" in v or "left" in v or "player1" in v))
-                right = card.find(class_=lambda v: v and ("team-2" in v or "right" in v or "player2" in v))
+                # teams / players / score
+                # Try structured stats block
+                team1 = team2 = player1 = player2 = score = "-"
+                # look for left/right blocks
+                left = card.select_one(".team-1, .left, .stats-left, .online-matches-stats-item:nth-of-type(1)")
+                right = card.select_one(".team-2, .right, .stats-right, .online-matches-stats-item:nth-of-type(2)")
 
                 if left:
-                    # procurar nome do jogador / time em links ou spans
-                    a = left.find("a")
-                    team1 = a.get_text(strip=True) if a else left.get_text(strip=True)
+                    player1 = (left.select_one("a") or left.select_one(".player-name") or left).get_text(strip=True)
+                    t1 = left.select_one(".club, .team-name, .team")
+                    team1 = t1.get_text(strip=True) if t1 else player1
+
                 if right:
-                    a = right.find("a")
-                    team2 = a.get_text(strip=True) if a else right.get_text(strip=True)
+                    player2 = (right.select_one("a") or right.select_one(".player-name") or right).get_text(strip=True)
+                    t2 = right.select_one(".club, .team-name, .team")
+                    team2 = t2.get_text(strip=True) if t2 else player2
 
-                # como fallback, buscar por elementos tipo ".online-matches-stats-item"
-                stats = card.find_all(class_=lambda v: v and "online-matches-stats-item" in v)
-                if stats and len(stats) >= 2:
-                    try:
-                        left, right = stats[0], stats[1]
-                        player1 = left.get_text(" ", strip=True)
-                        player2 = right.get_text(" ", strip=True)
-                    except Exception:
-                        pass
+                # score
+                sc = card.select_one(".score, .match-score, .event-card__score")
+                if sc:
+                    score = sc.get_text(strip=True)
 
-                status = "Live" if "live" in card.get_text(" ").lower() else "Scheduled"
+                # If still missing, try generic patterns
+                text = card.get_text(" ", strip=True)
+                status = "Live" if re.search(r"\blive\b", text, flags=re.I) else "Scheduled"
 
-                matches.append({
+                match = {
+                    "match_id": make_match_id({
+                        "stadium": stadium,
+                        "team1": team1,
+                        "team2": team2,
+                        "match_time": match_time,
+                        "score": score
+                    }),
                     "stadium": stadium or "Unknown",
-                    "league": league or "-",
-                    "match_time": match_time or "-",
-                    "team1": team1 or "-",
-                    "player1": player1 or "-",
-                    "team2": team2 or "-",
-                    "player2": player2 or "-",
-                    "score": score or "-",
-                    "status": status,
-                    "match_id": None
-                })
+                    "league": league,
+                    "match_time": match_time,
+                    "team1": team1,
+                    "player1": player1,
+                    "team2": team2,
+                    "player2": player2,
+                    "score": score,
+                    "status": status
+                }
+                matches.append(match)
             except Exception:
+                # be resilient: skip problematic card
                 continue
 
         return locations, matches
+
+    # -------------------------
+    # Convenience: collect both
+    # -------------------------
+    def collect(self) -> Tuple[Dict[str, str], List[dict]]:
+        html = self.fetch_page()
+        return self.parse(html)
