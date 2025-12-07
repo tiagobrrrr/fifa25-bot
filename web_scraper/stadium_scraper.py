@@ -1,6 +1,5 @@
 import time
 import logging
-import requests
 from bs4 import BeautifulSoup
 
 from selenium import webdriver
@@ -11,8 +10,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 class StadiumScraper:
 
-    def __init__(self, url="https://football.esportsbattle.com/en"):
+    def __init__(self, url="https://football.esportsbattle.com/en", wait_seconds=6):
         self.url = url
+        self.wait_seconds = wait_seconds
 
     # ------------------------------------------------------------
     # Cria o driver corretamente (Render compatible)
@@ -26,7 +26,6 @@ class StadiumScraper:
         opts.add_argument("--window-size=1920,1080")
 
         service = Service(ChromeDriverManager().install())
-
         return webdriver.Chrome(service=service, options=opts)
 
     # ------------------------------------------------------------
@@ -36,7 +35,7 @@ class StadiumScraper:
         driver = self._get_driver()
         try:
             driver.get(self.url)
-            time.sleep(3)
+            time.sleep(self.wait_seconds)
             return driver.page_source
         except Exception as e:
             logging.error(f"[SCRAPER] Erro ao carregar página: {e}")
