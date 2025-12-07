@@ -1,68 +1,101 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-br">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FIFA25 Bot Dashboard</title>
+  <title>FIFA25 Bot — Dashboard Premium</title>
 
-  <!-- Bootstrap 5 CDN -->
+  <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
   <style>
-    body { background: #f4f6fb; }
-    header.navbar { background: linear-gradient(90deg,#0f172a,#1e3a8a); }
-    .card { box-shadow: 0 6px 18px rgba(16,24,40,0.06); }
-    .table-sm th, .table-sm td { vertical-align: middle; }
-    .live-badge { background:#ef4444; color:white; font-weight:600; padding:4px 8px; border-radius:6px; }
+    :root{
+      --bg:#0b1220;
+      --card:#0f1724;
+      --muted:#9aa4b2;
+      --accent:#0ea5a9;
+      --accent-2:#7c3aed;
+      --panel:#0d1722;
+    }
+    html,body{height:100%;font-family:Inter,system-ui,Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#071022 0%, #0b1220 60%);color:#e6eef6;}
+    .navbar{background:linear-gradient(90deg,var(--bg), #0f172a);box-shadow:0 6px 20px rgba(4,6,12,0.6);}
+    .sidebar{
+      width:220px;
+      position:fixed;
+      left:0;top:0;bottom:0;
+      background:linear-gradient(180deg,#071122,#081627);
+      padding:28px 18px;
+      border-right:1px solid rgba(255,255,255,0.02);
+      z-index:1000;
+    }
+    .sidebar .brand{font-weight:800;color: #7dd3fc;letter-spacing:0.4px;font-size:18px}
+    .sidebar .nav-link{color:rgba(255,255,255,0.85);padding:10px 6px;border-radius:8px}
+    .sidebar .nav-link.active{background:linear-gradient(90deg,#0ea5a9, #7c3aed);color:white;box-shadow:0 6px 20px rgba(124,58,237,0.12)}
+    main.content{margin-left:240px;padding:28px;min-height:100vh}
+    .card{background:var(--card);border:0;border-radius:12px;color:inherit}
+    .top-stats .card{padding:22px}
+    .metric{font-size:28px;font-weight:700}
+    .metric-small{font-size:14px;color:var(--muted)}
+    .table thead th{border-bottom:1px solid rgba(255,255,255,0.03);color:#cfe6ff}
+    .live-badge{background:#ef4444;color:white;font-weight:700;padding:6px 10px;border-radius:12px}
+    .card-graph{height:260px;display:flex;align-items:center;justify-content:center}
+    /* small responsive */
+    @media (max-width:991px){
+      .sidebar{display:none}
+      main.content{margin-left:0;padding:14px}
+    }
+    /* fix top navbar */
+    header.navbar{position:sticky;top:0;z-index:1100}
   </style>
 </head>
 <body>
-
-<nav class="navbar navbar-expand-lg navbar-dark">
-  <div class="container">
-    <a class="navbar-brand" href="/">FIFA25 Bot</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-
-    <div class="collapse navbar-collapse" id="navMenu">
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link" href="/">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link" href="/matches">Partidas</a></li>
-        <li class="nav-item"><a class="nav-link" href="/players">Jogadores</a></li>
-        <li class="nav-item"><a class="nav-link" href="/reports">Relatórios</a></li>
-      </ul>
-
-      <form class="d-flex" role="search" action="/players" method="get">
-        <input name="q" class="form-control form-control-sm me-2" type="search" placeholder="Buscar jogador..." aria-label="Buscar">
-        <button class="btn btn-outline-light btn-sm" type="submit">Buscar</button>
-      </form>
-    </div>
+  <div class="sidebar">
+    <div class="brand mb-4">FIFA25 <small style="display:block;font-weight:500;color:var(--muted)">Bot Premium</small></div>
+    <nav class="nav flex-column">
+      <a class="nav-link active" href="/">Dashboard</a>
+      <a class="nav-link" href="/matches">Partidas</a>
+      <a class="nav-link" href="/players">Jogadores</a>
+      <a class="nav-link" href="/reports">Relatórios</a>
+    </nav>
+    <hr style="border-color:rgba(255,255,255,0.03);margin:18px 0">
+    <div style="font-size:13px;color:var(--muted)">Status: <strong style="color:#a7f3d0">Online</strong></div>
   </div>
-</nav>
 
-<div class="container my-4">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="mb-3">
+  <header class="navbar navbar-expand-lg navbar-dark">
+    <div class="container-fluid">
+      <a class="navbar-brand ms-3" href="/">FIFA25 Bot</a>
+      <div class="collapse navbar-collapse">
+        <form class="d-flex ms-auto me-3" action="/players" method="get">
+          <input name="q" class="form-control form-control-sm me-2" type="search" placeholder="Buscar jogador..." aria-label="Buscar">
+          <button class="btn btn-outline-light btn-sm" type="submit">Buscar</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="content container-fluid">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mb-3">
         {% for category, msg in messages %}
-          <div class="alert alert-{{ 'success' if category=='success' else 'danger' }}" role="alert">
-            {{ msg }}
-          </div>
+          <div class="alert alert-{{ 'success' if category=='success' else 'danger' }}" role="alert">{{ msg }}</div>
         {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
+        </div>
+      {% endif %}
+    {% endwith %}
 
-  <div class="row">
-    <div class="col-12">
-      <div class="card p-3">
-        {% block content %}{% endblock %}
+    <div class="row">
+      <div class="col-12">
+        <div class="card p-3">
+          {% block content %}{% endblock %}
+        </div>
       </div>
     </div>
-  </div>
-</div>
+  </main>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
