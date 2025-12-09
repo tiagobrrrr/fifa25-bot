@@ -1,103 +1,61 @@
 {% extends "layout.html" %}
 {% block content %}
+
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
-    <h2 class="mb-0">Painel Premium — Monitoramento</h2>
-    <small class="text-muted">Última varredura: {% if last_scan %} {{ last_scan.strftime("%d/%m/%Y %H:%M:%S") }} {% else %} Nunca {% endif %}</small>
+    <h3 class="fw-bold text-white mb-1">Painel Premium — Monitoramento</h3>
+
+    <small class="text-white fw-bold">
+      Última varredura:
+      {% if last_scan %}
+        {{ last_scan.strftime("%d/%m/%Y %H:%M:%S") }}
+      {% else %}
+        Nunca executado
+      {% endif %}
+    </small>
   </div>
+
   <div>
-    <a href="/matches" class="btn btn-sm btn-outline-light">Ver Partidas</a>
-    <a href="/reports" class="btn btn-sm btn-outline-light">Relatórios</a>
+    <a href="/matches" class="btn btn-outline-light btn-sm">Partidas</a>
+    <a href="/players" class="btn btn-outline-light btn-sm">Jogadores</a>
+    <a href="/reports" class="btn btn-outline-light btn-sm">Relatórios</a>
   </div>
 </div>
 
-<div class="row g-3 mb-3">
-  <div class="col-lg-4">
-    <div class="card top-stats">
-      <div class="d-flex justify-content-between">
-        <div>
-          <div class="metric-small">Total de partidas</div>
-          <div class="metric">{{ stats.total }}</div>
-        </div>
-        <div class="text-end">
-          <div class="metric-small">Ao vivo</div>
-          <div class="metric text-danger">{{ stats.live }}</div>
-        </div>
-      </div>
-    </div>
-  </div>
+<hr class="border-secondary">
 
-  <div class="col-lg-4">
-    <div class="card card-graph" id="chart-activity">
-      <!-- placeholder para gráfico (chart.js) -->
-      <div id="chart-placeholder">Gráfico de atividade (ao vivo)</div>
-    </div>
-  </div>
+<h5 class="text-info mb-2">🔴 Partidas Ao Vivo</h5>
 
-  <div class="col-lg-4">
-    <div class="card p-3">
-      <h6 class="mb-2">Filtros Rápidos</h6>
-      <form class="row g-2" method="get" action="/matches">
-        <div class="col-12">
-          <input name="q" class="form-control form-control-sm" placeholder="Buscar por time / jogador">
-        </div>
-        <div class="col-6">
-          <button class="btn btn-sm btn-primary w-100" type="submit">Aplicar</button>
-        </div>
-        <div class="col-6">
-          <a href="/export_stadiums" class="btn btn-sm btn-outline-light w-100">Exportar por estádio</a>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
+<table class="table table-dark table-hover table-sm">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Time 1</th>
+      <th>Time 2</th>
+      <th>Placar</th>
+      <th>Liga</th>
+      <th>Horário</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% set live_matches = matches | selectattr("status","equalto","Live") | list %}
+    {% if live_matches %}
+      {% for m in live_matches %}
+      <tr>
+        <td>{{ m.id }}</td>
+        <td>{{ m.team1 }}</td>
+        <td>{{ m.team2 }}</td>
+        <td>{{ m.score }}</td>
+        <td>{{ m.league }}</td>
+        <td>{{ m.match_time }}</td>
+        <td><span class="live-badge">LIVE</span></td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="7" class="text-muted">Nenhuma partida ao vivo agora.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
 
-<div class="row">
-  <div class="col-12">
-    <div class="card p-0">
-      <div class="table-responsive">
-        <table class="table table-dark table-striped mb-0">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time 1</th><th>Time 2</th><th>Placar</th><th>Liga</th><th>Horário</th><th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% if matches %}
-              {% for m in matches %}
-                <tr>
-                  <td>{{ m.id }}</td>
-                  <td>{{ m.team1 }}</td>
-                  <td>{{ m.team2 }}</td>
-                  <td>{{ m.score }}</td>
-                  <td>{{ m.league }}</td>
-                  <td>{{ m.match_time }}</td>
-                  <td>
-                    {% if m.status and 'live' in m.status|lower %}
-                      <span class="live-badge">LIVE</span>
-                    {% else %}
-                      <span class="badge bg-secondary">—</span>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            {% else %}
-              <tr><td colspan="7" class="text-muted text-center">Nenhuma partida encontrada.</td></tr>
-            {% endif %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Chart.js (opcional) -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-  // Exemplo simples: gráfico de atividade fictício (você pode popular com dados reais via endpoint)
-  const ctx = document.getElementById('chart-activity');
-  if (ctx) {
-    // placeholder: não renderiza até você inserir um canvas; deixamos a área para futura integração
-  }
-</script>
 {% endblock %}
