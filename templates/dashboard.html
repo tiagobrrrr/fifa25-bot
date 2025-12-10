@@ -2,60 +2,66 @@
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h3 class="fw-bold text-white mb-1">Painel Premium — Monitoramento</h3>
+    <div>
+        <h3 class="fw-bold">Painel — Monitoramento</h3>
+        <span class="last-scan">
+            Última varredura:
+            {% if last_scan %}
+                {{ last_scan.strftime("%d/%m/%Y %H:%M:%S") }}
+            {% else %}
+                Nunca executado
+            {% endif %}
+        </span>
+    </div>
 
-    <small class="text-white fw-bold">
-      Última varredura:
-      {% if last_scan %}
-        {{ last_scan.strftime("%d/%m/%Y %H:%M:%S") }}
-      {% else %}
-        Nunca executado
-      {% endif %}
-    </small>
-  </div>
-
-  <div>
-    <a href="/matches" class="btn btn-outline-light btn-sm">Partidas</a>
-    <a href="/players" class="btn btn-outline-light btn-sm">Jogadores</a>
-    <a href="/reports" class="btn btn-outline-light btn-sm">Relatórios</a>
-  </div>
+    <div>
+        <a href="/matches" class="btn btn-sm btn-outline-light">Partidas</a>
+        <a href="/players" class="btn btn-sm btn-outline-light">Jogadores</a>
+        <a href="/reports" class="btn btn-sm btn-outline-light">Relatórios</a>
+    </div>
 </div>
 
-<hr class="border-secondary">
+<div class="card p-3 mb-4">
+    <h5 class="mb-3">
+        <span class="text-danger">🔴</span> Partidas Ao Vivo
+    </h5>
 
-<h5 class="text-info mb-2">🔴 Partidas Ao Vivo</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-dark table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Time 1</th>
+                    <th>Time 2</th>
+                    <th>Placar</th>
+                    <th>Liga</th>
+                    <th>Horário</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
 
-<table class="table table-dark table-hover table-sm">
-  <thead>
-    <tr>
-      <th>ID</th>
-      <th>Time 1</th>
-      <th>Time 2</th>
-      <th>Placar</th>
-      <th>Liga</th>
-      <th>Horário</th>
-      <th>Status</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% set live_matches = matches | selectattr("status","equalto","Live") | list %}
-    {% if live_matches %}
-      {% for m in live_matches %}
-      <tr>
-        <td>{{ m.id }}</td>
-        <td>{{ m.team1 }}</td>
-        <td>{{ m.team2 }}</td>
-        <td>{{ m.score }}</td>
-        <td>{{ m.league }}</td>
-        <td>{{ m.match_time }}</td>
-        <td><span class="live-badge">LIVE</span></td>
-      </tr>
-      {% endfor %}
-    {% else %}
-      <tr><td colspan="7" class="text-muted">Nenhuma partida ao vivo agora.</td></tr>
-    {% endif %}
-  </tbody>
-</table>
+                {% if live_matches %}
+                    {% for m in live_matches %}
+                    <tr>
+                        <td>{{ m.id }}</td>
+                        <td>{{ m.team1 }}</td>
+                        <td>{{ m.team2 }}</td>
+                        <td>{{ m.score }}</td>
+                        <td>{{ m.league }}</td>
+                        <td>{{ m.match_time }}</td>
+                        <td><span class="live-badge">LIVE</span></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="7" class="text-muted text-center">Nenhuma partida ao vivo no momento.</td>
+                    </tr>
+                {% endif %}
+
+            </tbody>
+        </table>
+    </div>
+</div>
 
 {% endblock %}
