@@ -1,4 +1,4 @@
-# app.py - Versão completa e corrigida (sem Telegram, relatório semanal por Gmail)
+# app.py - Versão completa e corrigida (remove Telegram, usa StadiumScraper.collect)
 import os
 import time
 import logging
@@ -6,22 +6,22 @@ from math import ceil
 from datetime import datetime
 from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
-from typing import Tuple
+from typing import Optional
 
-from flask import Flask, render_template, request, redirect, flash, send_file, jsonify
+from flask import Flask, render_template, request, redirect, send_file, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
 
-# scraper / exporter / emailer
+# imports do scraper/exporter/emailer (assumindo que web_scraper package está presente)
 from web_scraper.stadium_scraper import StadiumScraper
 from web_scraper.exporter import export_single_workbook_by_stadium
 from web_scraper.emailer import send_file_via_gmail
 
-# =========================
-# Config
-# =========================
+# -------------------------
+# Config / App init
+# -------------------------
 app = Flask(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "default_secret_key")
 
@@ -34,25 +34,28 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", 30))  # seconds
+# scanner interval (segundos)
+SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", 30))
+
+# Scheduler on/off
 RUN_SCRAPER = os.getenv("RUN_SCRAPER", "true").lower() == "true"
 
-# Gmail envs for weekly report
+# Gmail env vars (para relatório semanal)
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 REPORT_RECIPIENT = os.getenv("REPORT_RECIPIENT", GMAIL_USER)
 
-# Scraper config
+# scraper settings
 SCRAPER_WAIT = int(os.getenv("SCRAPER_WAIT", 6))
 FORCE_REQUESTS = os.getenv("FORCE_REQUESTS", "false").lower() == "true"
 
-# Logging
+# logging
 logging.basicConfig(level=logging.INFO)
 app.logger.setLevel(logging.INFO)
 
-# =========================
+# -------------------------
 # Models
-# =========================
+# -------------------------
 class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
@@ -72,12 +75,11 @@ class Match(db.Model):
     status = db.Column(db.String(50))
     match_id = db.Column(db.String(128), unique=False)
 
-# =========================
-# Database bootstrap (wait + create)
-# =========================
+# -------------------------
+# DB bootstrap (aguarda e cria tabelas)
+# -------------------------
 def ensure_db_ready_and_sync():
     with app.app_context():
-        # wait for DB (render/postgres may be slow)
         for attempt in range(30):
             try:
                 db.session.execute(text("SELECT 1"))
@@ -90,7 +92,7 @@ def ensure_db_ready_and_sync():
             return
 
         try:
-            # remove legacy tables that could conflict (safe)
+            # remove tabelas antigas problemáticas (compatibilidade)
             db.session.execute(text("DROP TABLE IF EXISTS match CASCADE"))
             db.session.execute(text("DROP TABLE IF EXISTS matches CASCADE"))
             db.session.commit()
@@ -107,69 +109,82 @@ def ensure_db_ready_and_sync():
 
 ensure_db_ready_and_sync()
 
-# =========================
+# -------------------------
 # Scraper init
-# =========================
+# -------------------------
 scraper = StadiumScraper(wait_seconds=SCRAPER_WAIT, force_requests=FORCE_REQUESTS)
 
-def _scraper_collect_safe() -> Tuple[dict, list]:
+def _collect_from_scraper():
     """
-    Compat layer: prefer collect(), otherwise fetch_page() + parse()
-    Returns (locations_map, matches_list)
+    Compat layer: se scraper tiver collect() usa, senão tenta fetch_page() + parse()
+    Retorna (locations_map, matches_list)
     """
     if hasattr(scraper, "collect"):
         return scraper.collect()
-    # fallback
-    html = scraper.fetch_page()
-    return scraper.parse(html)
+    else:
+        html = scraper.fetch_page()
+        return scraper.parse(html)
 
-# =========================
-# Scan & save
-# =========================
+# -------------------------
+# Scan & save job
+# -------------------------
 def scan_and_save():
     with app.app_context():
+        app.logger.info("[SCAN] Execução do scanner iniciada.")
         try:
-            app.logger.info("[SCAN] Execução do scanner iniciada.")
-            locations_map, matches = _scraper_collect_safe()
+            locations_map, matches = _collect_from_scraper()
+        except Exception as e:
+            app.logger.exception("[SCAN] Erro ao coletar do scraper: %s", e)
+            return
 
-            # try-safe DB operations: if DB has intermittent SSL issues, catch and keep running
+        if not matches:
+            app.logger.info("[SCAN] OK — 0 partidas atualizadas.")
+            return
+
+        # Tentar salvar no DB com tratamento de OperationalError
+        try:
+            # delete antigo (se falhar, logamos e abortamos para evitar inconsistencia)
             try:
                 db.session.query(Match).delete()
-                for m in matches:
-                    mm = Match(
-                        stadium = m.get("stadium"),
-                        league = m.get("league"),
-                        match_time = m.get("match_time"),
-                        team1 = m.get("team1"),
-                        player1 = m.get("player1"),
-                        team2 = m.get("team2"),
-                        player2 = m.get("player2"),
-                        score = m.get("score"),
-                        status = m.get("status"),
-                        match_id = m.get("match_id")
-                    )
-                    db.session.add(mm)
                 db.session.commit()
-                app.logger.info("[SCAN] Concluído com %d partidas", len(matches))
             except OperationalError as e:
-                app.logger.exception("[SCAN] OperationalError ao salvar no DB: %s", e)
+                app.logger.error("[SCAN] DB operacional error ao deletar: %s", e)
                 db.session.rollback()
-            except Exception as e:
-                app.logger.exception("[SCAN] Erro ao salvar no DB: %s", e)
-                db.session.rollback()
+                # abortar salvamento para não mascarar problema de conexão
+                return
 
+            for m in matches:
+                mm = Match(
+                    stadium = m.get("stadium"),
+                    league = m.get("league"),
+                    match_time = m.get("match_time"),
+                    team1 = m.get("team1"),
+                    player1 = m.get("player1"),
+                    team2 = m.get("team2"),
+                    player2 = m.get("player2"),
+                    score = m.get("score"),
+                    status = m.get("status"),
+                    match_id = m.get("match_id")
+                )
+                db.session.add(mm)
+            db.session.commit()
+            app.logger.info("[SCAN] Concluído com %d partidas", len(matches))
+        except OperationalError as e:
+            app.logger.exception("[SCAN] OperationalError ao salvar no DB: %s", e)
+            db.session.rollback()
         except Exception as e:
-            app.logger.exception("[SCAN] Erro durante scan_and_save: %s", e)
+            app.logger.exception("[SCAN] Erro inesperado ao salvar partidas: %s", e)
+            db.session.rollback()
 
-# =========================
-# Export / Email
-# =========================
+# -------------------------
+# Export & Email functions
+# -------------------------
 def generate_and_get_workbook():
     with app.app_context():
         try:
             matches = Match.query.order_by(Match.id.desc()).all()
-        except Exception as e:
-            app.logger.warning("[EXPORT] Não foi possível ler DB: %s", e)
+        except OperationalError as e:
+            app.logger.warning("[EXPORT] DB inacessível ao gerar workbook: %s", e)
             matches = []
 
         stadiums = {}
@@ -187,7 +202,6 @@ def generate_and_get_workbook():
                 "score": m.score,
                 "status": m.status
             })
-
         path = export_single_workbook_by_stadium(stadiums, prefix="weekly_stadiums")
         return path
 
@@ -202,27 +216,27 @@ def weekly_stadium_report():
     except Exception as e:
         app.logger.exception("[REPORT] Falha ao gerar/enviar relatório: %s", e)
 
-# =========================
+# -------------------------
 # Scheduler
-# =========================
+# -------------------------
 scheduler = BackgroundScheduler()
 if RUN_SCRAPER:
     scheduler.add_job(scan_and_save, "interval", seconds=SCAN_INTERVAL, id="scan_and_save")
-    # weekly (domingo 00:05 America/Sao_Paulo)
+    # semanal: domingo 00:05 America/Sao_Paulo
     scheduler.add_job(weekly_stadium_report, "cron", day_of_week="sun", hour=0, minute=5, timezone="America/Sao_Paulo", id="weekly_stadium_report")
     scheduler.start()
     app.logger.info("[SCHEDULER] Ativo — intervalo %ds", SCAN_INTERVAL)
 else:
     app.logger.info("[SCHEDULER] Desativado por configuração.")
 
-# =========================
-# Routes
-# =========================
+# -------------------------
+# Routes / Web UI
+# -------------------------
 @app.route("/")
 def dashboard():
     matches_list = []
     stats = {"total": 0, "live": 0}
-    db_error = None
+    db_error: Optional[str] = None
     try:
         matches = Match.query.order_by(Match.id.desc()).limit(200).all()
         matches_list = [{
@@ -239,19 +253,16 @@ def dashboard():
     except OperationalError as e:
         app.logger.warning("[WEB] DB OperationalError ao renderizar dashboard: %s", e)
         db_error = str(e)
-    except Exception as e:
-        app.logger.exception("[WEB] Erro ao buscar matches: %s", e)
-        db_error = str(e)
 
-    # precompute live matches (avoid Jinja list-comprehensions)
+    # compute live matches to avoid Jinja list comprehensions
     live_matches = [m for m in matches_list if m.get("status") and "live" in m.get("status", "").lower()]
 
-    # use Sao Paulo timezone for last_scan display
+    # Use America/Sao_Paulo for display
     try:
         tz = ZoneInfo("America/Sao_Paulo")
-        last_scan = datetime.now(tz)
     except Exception:
-        last_scan = datetime.utcnow()
+        tz = None
+    last_scan = datetime.now(tz) if tz else datetime.utcnow()
 
     return render_template("dashboard.html",
                            matches=matches_list,
@@ -260,7 +271,6 @@ def dashboard():
                            live_matches=live_matches,
                            db_error=db_error)
 
-# matches, players, reports routes (kept same behaviour)
 @app.route("/matches")
 def matches_page():
     page = max(1, int(request.args.get("page", 1)))
@@ -290,7 +300,12 @@ def players_page():
     first = max(1, page - window//2)
     last = min(total_pages, first + window - 1)
     page_numbers = list(range(first, last+1))
-    return render_template("players.html", players=players, page=page, total_pages=total_pages, page_numbers=page_numbers, q=q)
+    return render_template("players.html",
+                           players=players,
+                           page=page,
+                           total_pages=total_pages,
+                           page_numbers=page_numbers,
+                           q=q)
 
 @app.route("/players/add", methods=["POST"])
 def players_add():
@@ -358,10 +373,9 @@ def export_stadiums_now():
 def health():
     return "ok", 200
 
-# =========================
-# Main
-# =========================
+# -------------------------
+# Start (local)
+# -------------------------
 if __name__ == "__main__":
-    # local debug server
-    port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=False)
+
