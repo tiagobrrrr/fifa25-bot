@@ -1,4 +1,4 @@
-# app.py - Versão completa e corrigida (remove Telegram, usa StadiumScraper.collect)
+# app.py - Versão corrigida e resiliente (sem Telegram, com SSL DB handling)
 import os
 import time
 import logging
@@ -6,38 +6,40 @@ from math import ceil
 from datetime import datetime
 from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
-from typing import Optional
 
-from flask import Flask, render_template, request, redirect, send_file, flash, jsonify
+from flask import Flask, render_template, request, redirect, session, send_file, flash, url_for, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
 
-# imports do scraper/exporter/emailer (assumindo que web_scraper package está presente)
+# imports do scraper / exporter / emailer (assumo que existem em web_scraper/)
 from web_scraper.stadium_scraper import StadiumScraper
 from web_scraper.exporter import export_single_workbook_by_stadium
 from web_scraper.emailer import send_file_via_gmail
 
-# -------------------------
-# Config / App init
-# -------------------------
+# -----------------------
+# Config
+# -----------------------
 app = Flask(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "default_secret_key")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    # SQLAlchemy wants postgresql://
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or "sqlite:///local.db"
+# Add engine options to force SSL mode when needed (helps on some hosted Postgres)
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "connect_args": {"sslmode": os.getenv("POSTGRES_SSLMODE", "require")}
+}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
 # scanner interval (segundos)
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", 30))
-
-# Scheduler on/off
 RUN_SCRAPER = os.getenv("RUN_SCRAPER", "true").lower() == "true"
 
 # Gmail env vars (para relatório semanal)
@@ -45,17 +47,13 @@ GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 REPORT_RECIPIENT = os.getenv("REPORT_RECIPIENT", GMAIL_USER)
 
-# scraper settings
-SCRAPER_WAIT = int(os.getenv("SCRAPER_WAIT", 6))
-FORCE_REQUESTS = os.getenv("FORCE_REQUESTS", "false").lower() == "true"
-
 # logging
 logging.basicConfig(level=logging.INFO)
 app.logger.setLevel(logging.INFO)
 
-# -------------------------
+# -----------------------
 # Models
-# -------------------------
+# -----------------------
 class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
@@ -75,11 +73,12 @@ class Match(db.Model):
     status = db.Column(db.String(50))
     match_id = db.Column(db.String(128), unique=False)
 
-# -------------------------
-# DB bootstrap (aguarda e cria tabelas)
-# -------------------------
+# -----------------------
+# DB bootstrap / sync
+# -----------------------
 def ensure_db_ready_and_sync():
     with app.app_context():
+        # wait DB up to N seconds
         for attempt in range(30):
             try:
                 db.session.execute(text("SELECT 1"))
@@ -91,8 +90,8 @@ def ensure_db_ready_and_sync():
             app.logger.error("[DB] Banco não respondeu a tempo. Continuando sem criar tabelas.")
             return
 
+        # remove antigas (compatibilidade)
         try:
-            # remove tabelas antigas problemáticas (compatibilidade)
             db.session.execute(text("DROP TABLE IF EXISTS match CASCADE"))
             db.session.execute(text("DROP TABLE IF EXISTS matches CASCADE"))
             db.session.commit()
@@ -109,15 +108,19 @@ def ensure_db_ready_and_sync():
 
 ensure_db_ready_and_sync()
 
-# -------------------------
-# Scraper init
-# -------------------------
+# -----------------------
+# Scraper init + helper
+# -----------------------
+SCRAPER_WAIT = int(os.getenv("SCRAPER_WAIT", 6))
+FORCE_REQUESTS = os.getenv("FORCE_REQUESTS", "false").lower() == "true"
+
+# instantiate StadiumScraper (assumes web_scraper/stadium_scraper.py exists)
 scraper = StadiumScraper(wait_seconds=SCRAPER_WAIT, force_requests=FORCE_REQUESTS)
 
-def _collect_from_scraper():
+def _scraper_collect_safe():
     """
-    Compat layer: se scraper tiver collect() usa, senão tenta fetch_page() + parse()
-    Retorna (locations_map, matches_list)
+    Call collect() when available, else fetch_page()+parse().
+    Returns (locations_map, matches_list)
     """
     if hasattr(scraper, "collect"):
         return scraper.collect()
@@ -125,60 +128,50 @@ def _collect_from_scraper():
         html = scraper.fetch_page()
         return scraper.parse(html)
 
-# -------------------------
-# Scan & save job
-# -------------------------
+# -----------------------
+# scan_and_save job (resilient)
+# -----------------------
 def scan_and_save():
     with app.app_context():
-        app.logger.info("[SCAN] Execução do scanner iniciada.")
         try:
-            locations_map, matches = _collect_from_scraper()
-        except Exception as e:
-            app.logger.exception("[SCAN] Erro ao coletar do scraper: %s", e)
-            return
+            app.logger.info("[SCAN] Execução do scanner iniciada.")
+            locations_map, matches = _scraper_collect_safe()
+            if not isinstance(matches, list):
+                matches = []
 
-        if not matches:
-            app.logger.info("[SCAN] OK — 0 partidas atualizadas.")
-            return
-
-        # Tentar salvar no DB com tratamento de OperationalError
-        try:
-            # delete antigo (se falhar, logamos e abortamos para evitar inconsistencia)
+            # Save to DB - do this in a safe/atomic way
             try:
-                db.session.query(Match).delete()
+                # prefer direct DELETE via text to avoid complex ORM issues under flaky DB
+                db.session.execute(text("DELETE FROM matches"))
+                for it in matches:
+                    m = Match(
+                        stadium = it.get("stadium"),
+                        league = it.get("league"),
+                        match_time = it.get("match_time"),
+                        team1 = it.get("team1"),
+                        player1 = it.get("player1"),
+                        team2 = it.get("team2"),
+                        player2 = it.get("player2"),
+                        score = it.get("score"),
+                        status = it.get("status"),
+                        match_id = it.get("match_id")
+                    )
+                    db.session.add(m)
                 db.session.commit()
-            except OperationalError as e:
-                app.logger.error("[SCAN] DB operacional error ao deletar: %s", e)
+                app.logger.info("[SCAN] Concluído com %d partidas", len(matches))
+            except OperationalError as oe:
+                app.logger.exception("[SCAN] OperationalError ao salvar no DB: %s", oe)
                 db.session.rollback()
-                # abortar salvamento para não mascarar problema de conexão
-                return
+            except Exception as e:
+                app.logger.exception("[SCAN] Erro ao salvar dados no DB: %s", e)
+                db.session.rollback()
 
-            for m in matches:
-                mm = Match(
-                    stadium = m.get("stadium"),
-                    league = m.get("league"),
-                    match_time = m.get("match_time"),
-                    team1 = m.get("team1"),
-                    player1 = m.get("player1"),
-                    team2 = m.get("team2"),
-                    player2 = m.get("player2"),
-                    score = m.get("score"),
-                    status = m.get("status"),
-                    match_id = m.get("match_id")
-                )
-                db.session.add(mm)
-            db.session.commit()
-            app.logger.info("[SCAN] Concluído com %d partidas", len(matches))
-        except OperationalError as e:
-            app.logger.exception("[SCAN] OperationalError ao salvar no DB: %s", e)
-            db.session.rollback()
         except Exception as e:
-            app.logger.exception("[SCAN] Erro inesperado ao salvar partidas: %s", e)
-            db.session.rollback()
+            app.logger.exception("[SCAN] Erro durante scan_and_save: %s", e)
 
-# -------------------------
-# Export & Email functions
-# -------------------------
+# -----------------------
+# EXPORT / EMAIL
+# -----------------------
 def generate_and_get_workbook():
     with app.app_context():
         try:
@@ -202,6 +195,7 @@ def generate_and_get_workbook():
                 "score": m.score,
                 "status": m.status
             })
+
         path = export_single_workbook_by_stadium(stadiums, prefix="weekly_stadiums")
         return path
 
@@ -216,27 +210,27 @@ def weekly_stadium_report():
     except Exception as e:
         app.logger.exception("[REPORT] Falha ao gerar/enviar relatório: %s", e)
 
-# -------------------------
+# -----------------------
 # Scheduler
-# -------------------------
+# -----------------------
 scheduler = BackgroundScheduler()
 if RUN_SCRAPER:
     scheduler.add_job(scan_and_save, "interval", seconds=SCAN_INTERVAL, id="scan_and_save")
-    # semanal: domingo 00:05 America/Sao_Paulo
+    # semanal domingo 00:05 America/Sao_Paulo
     scheduler.add_job(weekly_stadium_report, "cron", day_of_week="sun", hour=0, minute=5, timezone="America/Sao_Paulo", id="weekly_stadium_report")
     scheduler.start()
     app.logger.info("[SCHEDULER] Ativo — intervalo %ds", SCAN_INTERVAL)
 else:
     app.logger.info("[SCHEDULER] Desativado por configuração.")
 
-# -------------------------
-# Routes / Web UI
-# -------------------------
+# -----------------------
+# Routes / pages
+# -----------------------
 @app.route("/")
 def dashboard():
     matches_list = []
     stats = {"total": 0, "live": 0}
-    db_error: Optional[str] = None
+    db_error = None
     try:
         matches = Match.query.order_by(Match.id.desc()).limit(200).all()
         matches_list = [{
@@ -254,15 +248,11 @@ def dashboard():
         app.logger.warning("[WEB] DB OperationalError ao renderizar dashboard: %s", e)
         db_error = str(e)
 
-    # compute live matches to avoid Jinja list comprehensions
     live_matches = [m for m in matches_list if m.get("status") and "live" in m.get("status", "").lower()]
 
-    # Use America/Sao_Paulo for display
-    try:
-        tz = ZoneInfo("America/Sao_Paulo")
-    except Exception:
-        tz = None
-    last_scan = datetime.now(tz) if tz else datetime.utcnow()
+    # display timestamp in America/Sao_Paulo
+    tz = ZoneInfo("America/Sao_Paulo")
+    last_scan = datetime.now(tz)
 
     return render_template("dashboard.html",
                            matches=matches_list,
@@ -344,17 +334,20 @@ def reports_page():
 @app.route("/reports/export", methods=["POST"])
 def export_report():
     matches = Match.query.order_by(Match.id.desc()).all()
+    rows = []
+    for m in matches:
+        rows.append({
+            "ID": m.id,
+            "stadium": m.stadium,
+            "team1": m.team1,
+            "team2": m.team2,
+            "score": m.score,
+            "status": m.status,
+            "league": m.league,
+            "match_time": m.match_time
+        })
     import pandas as pd
-    df = pd.DataFrame([{
-        "ID": m.id,
-        "stadium": m.stadium,
-        "team1": m.team1,
-        "team2": m.team2,
-        "score": m.score,
-        "status": m.status,
-        "league": m.league,
-        "match_time": m.match_time
-    } for m in matches])
+    df = pd.DataFrame(rows)
     with NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         tmp_name = tmp.name
     df.to_excel(tmp_name, index=False)
@@ -373,9 +366,9 @@ def export_stadiums_now():
 def health():
     return "ok", 200
 
-# -------------------------
-# Start (local)
-# -------------------------
+# -----------------------
+# Start
+# -----------------------
 if __name__ == "__main__":
+    # local debug server
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=False)
-
