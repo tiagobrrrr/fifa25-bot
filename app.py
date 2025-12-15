@@ -1,109 +1,87 @@
-import os
 import logging
-from datetime import datetime
 from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime
+import os
 
-from web_scraper.stadium_scraper import StadiumScraper
+from stadium_scraper import StadiumScraper
 
-# =====================
-# LOG
-# =====================
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("app")
+logger = logging.getLogger("app")
 
-# =====================
-# DATABASE
-# =====================
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-# =====================
-# APP
-# =====================
 app = Flask(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///fifa25.db")
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# =====================
-# MODEL
-# =====================
+# ===================== MODELS =====================
+
 class Match(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    match_id = db.Column(db.String(64), unique=True, index=True)
-    stadium = db.Column(db.String(120))
-    league = db.Column(db.String(120))
-    match_time = db.Column(db.String(40))
-    team1 = db.Column(db.String(120))
-    player1 = db.Column(db.String(120))
-    team2 = db.Column(db.String(120))
-    player2 = db.Column(db.String(120))
-    score = db.Column(db.String(20))
-    status = db.Column(db.String(20))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    time1 = db.Column(db.String(120))
+    time2 = db.Column(db.String(120))
+    placar = db.Column(db.String(20))
+    liga = db.Column(db.String(120))
+    horario = db.Column(db.String(50))
+    status = db.Column(db.String(50))
+    updated_at = db.Column(db.DateTime)
 
-# =====================
-# DB INIT
-# =====================
-with app.app_context():
-    db.create_all()
-    log.info("[DB] Tabelas criadas/verificadas")
+# ===================== SCRAPER =====================
 
-# =====================
-# SCAN
-# =====================
+scraper = StadiumScraper(timeout=15)
+
+# ===================== SCAN =====================
+
 def scan_and_save():
-    log.info("[SCAN] Execução iniciada")
+    logger.info("[SCAN] Execução iniciada")
 
-    scraper = StadiumScraper()  # <<< CORREÇÃO CRÍTICA
-    _, matches = scraper.collect()
+    try:
+        matches = scraper.get_live_matches()
 
-    if not matches:
-        log.warning("[SCAN] Nenhuma partida encontrada")
-        return
+        if not matches:
+            logger.warning("[SCAN] Nenhuma partida encontrada")
+            return
 
-    inserted = 0
-    updated = 0
+        Match.query.delete()
 
-    with app.app_context():
         for m in matches:
-            existing = Match.query.filter_by(match_id=m["match_id"]).first()
-
-            if existing:
-                existing.score = m["score"]
-                existing.status = m["status"]
-                updated += 1
-            else:
-                db.session.add(Match(**m))
-                inserted += 1
+            match = Match(**m)
+            db.session.add(match)
 
         db.session.commit()
+        logger.info(f"[SCAN] OK — {len(matches)} partidas salvas")
 
-    log.info(f"[SCAN] OK — {inserted} novas | {updated} atualizadas")
+    except Exception as e:
+        logger.error(f"[SCAN] Erro: {e}", exc_info=True)
 
-# =====================
-# SCHEDULER
-# =====================
+# ===================== ROUTES =====================
+
+@app.route("/")
+def dashboard():
+    matches = Match.query.all()
+    last_scan = db.session.query(db.func.max(Match.updated_at)).scalar()
+
+    return render_template(
+        "dashboard.html",
+        matches=matches,
+        last_scan=last_scan.strftime("%d/%m/%Y %H:%M:%S") if last_scan else "Nunca executado"
+    )
+
+# ===================== INIT =====================
+
+with app.app_context():
+    db.create_all()
+    logger.info("[DB] Tabelas criadas/verificadas")
+
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.add_job(scan_and_save, "interval", seconds=30)
 scheduler.start()
-log.info("[SCHEDULER] Ativo — intervalo 30s")
 
-# =====================
-# ROUTES
-# =====================
-@app.route("/")
-def dashboard():
-    matches = Match.query.order_by(Match.id.desc()).limit(200).all()
-    return render_template("dashboard.html", matches=matches)
+logger.info("[SCHEDULER] Ativo — intervalo 30s")
 
-# =====================
-# ENTRY
-# =====================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)

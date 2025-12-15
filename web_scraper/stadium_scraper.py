@@ -1,133 +1,65 @@
-# web_scraper/stadium_scraper.py
-import logging
 import requests
-import re
-import hashlib
 from bs4 import BeautifulSoup
-from typing import List, Dict, Tuple, Optional
+import logging
+from datetime import datetime
 
-log = logging.getLogger("stadium_scraper")
+logger = logging.getLogger("stadium_scraper")
 
-DEFAULT_URL = "https://football.esportsbattle.com/en"
+BASE_URL = "https://football.esportsbattle.com/en/"
 
-
-def make_match_id(data: dict) -> str:
-    base = f"{data.get('stadium','')}_{data.get('player1','')}_{data.get('player2','')}_{data.get('match_time','')}"
-    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 class StadiumScraper:
-    """
-    Scraper robusto para football.esportsbattle.com
-    - Compatível com Render
-    - Sem Selenium
-    - Baseado em HTML real
-    """
-
-    def __init__(self, url: str = DEFAULT_URL, timeout: int = 15):
-        self.url = url
+    def __init__(self, timeout=15):
         self.timeout = timeout
 
-    # -------------------------
-    # FETCH
-    # -------------------------
-    def fetch_page(self) -> Optional[str]:
-        try:
-            log.info("[stadium_scraper] Fetch via requests")
-            headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120 Safari/537.36"
-                )
-            }
-            r = requests.get(self.url, headers=headers, timeout=self.timeout)
-            r.raise_for_status()
-            return r.text
-        except Exception as e:
-            log.error("[stadium_scraper] Erro ao buscar página: %s", e)
-            return None
+    def fetch_page(self):
+        logger.info("[stadium_scraper] Fetch via requests")
+        resp = requests.get(BASE_URL, headers=HEADERS, timeout=self.timeout)
+        resp.raise_for_status()
+        return resp.text
 
-    # -------------------------
-    # PARSER
-    # -------------------------
-    def parse(self, html: Optional[str]) -> Tuple[Dict[str, str], List[dict]]:
-        if not html:
-            return {}, []
-
+    def parse_matches(self, html):
         soup = BeautifulSoup(html, "html.parser")
-        matches: List[dict] = []
 
-        # Cards principais (baseado nos HTMLs enviados)
-        cards = soup.select("div[class*='event'], div[class*='match'], div[class*='online']")
-        log.info("[stadium_scraper] Cards encontrados: %d", len(cards))
+        cards = soup.select(".event-card, .match-card, .card")
+        logger.info(f"[stadium_scraper] Cards encontrados: {len(cards)}")
+
+        matches = []
 
         for card in cards:
-            text = card.get_text(" ", strip=True)
-            if not text or len(text) < 20:
-                continue
-
             try:
-                # STATUS
-                status = "Live" if re.search(r"\blive\b", text, re.I) else "Scheduled"
+                time1 = card.select_one(".team1, .home, .team-home")
+                time2 = card.select_one(".team2, .away, .team-away")
+                score = card.select_one(".score, .result")
+                league = card.select_one(".league, .tournament")
+                time_info = card.select_one(".time, .match-time")
 
-                # SCORE
-                score = "-"
-                m_score = re.search(r"\b\d+\s*[:\-]\s*\d+\b", text)
-                if m_score:
-                    score = m_score.group(0)
-
-                # PLAYERS
-                players = re.findall(r"[A-Za-z0-9_]{3,}", text)
-                player1 = players[0] if len(players) > 0 else "-"
-                player2 = players[1] if len(players) > 1 else "-"
-
-                # TIME
-                match_time = "-"
-                m_time = re.search(r"\b\d{1,2}:\d{2}\b", text)
-                if m_time:
-                    match_time = m_time.group(0)
-
-                # LEAGUE
-                league = "-"
-                league_el = card.select_one(".league, .competition")
-                if league_el:
-                    league = league_el.get_text(strip=True)
-
-                # STADIUM
-                stadium = "-"
-                stadium_el = card.select_one(".stadium, .location, .venue")
-                if stadium_el:
-                    stadium = stadium_el.get_text(strip=True)
+                if not time1 or not time2:
+                    continue
 
                 match = {
-                    "match_id": make_match_id({
-                        "stadium": stadium,
-                        "player1": player1,
-                        "player2": player2,
-                        "match_time": match_time
-                    }),
-                    "stadium": stadium,
-                    "league": league,
-                    "match_time": match_time,
-                    "team1": player1,
-                    "player1": player1,
-                    "team2": player2,
-                    "player2": player2,
-                    "score": score,
-                    "status": status,
+                    "time1": time1.get_text(strip=True),
+                    "time2": time2.get_text(strip=True),
+                    "placar": score.get_text(strip=True) if score else "0 - 0",
+                    "liga": league.get_text(strip=True) if league else "Desconhecida",
+                    "horario": time_info.get_text(strip=True) if time_info else "",
+                    "status": "Ao Vivo",
+                    "updated_at": datetime.utcnow(),
                 }
 
                 matches.append(match)
 
             except Exception as e:
-                log.warning("[stadium_scraper] Card ignorado: %s", e)
+                logger.warning(f"[stadium_scraper] Erro ao parsear card: {e}")
 
-        return {}, matches
+        return matches
 
-    # -------------------------
-    # PUBLIC
-    # -------------------------
-    def collect(self) -> Tuple[Dict[str, str], List[dict]]:
+    def get_live_matches(self):
         html = self.fetch_page()
-        return self.parse(html)
+        return self.parse_matches(html)

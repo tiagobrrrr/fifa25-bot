@@ -1,33 +1,80 @@
-{% extends "layout.html" %}
-{% block content %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>FIFA25 Bot</title>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-        <h3 class="fw-bold">Painel — Monitoramento</h3>
-        <span class="last-scan">
-            Última varredura:
-            {% if last_scan %}
-                {{ last_scan.strftime("%d/%m/%Y %H:%M:%S") }}
-            {% else %}
-                Nunca executado
-            {% endif %}
-        </span>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <style>
+        /* Correções rápidas de contraste */
+        h1, h2, h3, h4, h5, h6,
+        th, td,
+        span, p, div {
+            color: #ffffff !important;
+        }
+
+        .card {
+            background: linear-gradient(145deg, #1e293b, #0f172a);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .table thead th {
+            background-color: #1f2937;
+            color: #ffffff !important;
+            font-weight: 600;
+        }
+
+        .table tbody td {
+            background-color: transparent;
+            color: #ffffff !important;
+        }
+
+        .badge-live {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .badge-live::before {
+            content: "";
+            width: 14px;
+            height: 14px;
+            background-color: red;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .last-scan {
+            color: #ffffff !important;
+            opacity: 0.85;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container-fluid">
+
+    <h1>Painel — Monitoramento</h1>
+
+    <div class="last-scan">
+        Última varredura: {{ last_scan }}
     </div>
 
-    <div>
-        <a href="/matches" class="btn btn-sm btn-outline-light">Partidas</a>
-        <a href="/players" class="btn btn-sm btn-outline-light">Jogadores</a>
-        <a href="/reports" class="btn btn-sm btn-outline-light">Relatórios</a>
-    </div>
-</div>
+    <div class="card mt-3">
 
-<div class="card p-3 mb-4">
-    <h5 class="mb-3">
-        <span class="text-danger">🔴</span> Partidas Ao Vivo
-    </h5>
+        <div class="badge-live mb-3">
+            Partidas Ao Vivo
+        </div>
 
-    <div class="table-responsive">
-        <table class="table table-sm table-dark table-hover">
+        <table class="table table-hover table-dark">
             <thead>
                 <tr>
                     <th>ID</th>
@@ -39,29 +86,32 @@
                     <th>Status</th>
                 </tr>
             </thead>
-            <tbody>
 
-                {% if live_matches %}
-                    {% for m in live_matches %}
+            <tbody>
+                {% if matches %}
+                    {% for match in matches %}
                     <tr>
-                        <td>{{ m.id }}</td>
-                        <td>{{ m.team1 }}</td>
-                        <td>{{ m.team2 }}</td>
-                        <td>{{ m.score }}</td>
-                        <td>{{ m.league }}</td>
-                        <td>{{ m.match_time }}</td>
-                        <td><span class="live-badge">LIVE</span></td>
+                        <td>{{ match.id }}</td>
+                        <td>{{ match.team1 }}</td>
+                        <td>{{ match.team2 }}</td>
+                        <td>{{ match.score or '-' }}</td>
+                        <td>{{ match.league or '-' }}</td>
+                        <td>{{ match.match_time or '-' }}</td>
+                        <td>{{ match.status }}</td>
                     </tr>
                     {% endfor %}
                 {% else %}
                     <tr>
-                        <td colspan="7" class="text-muted text-center">Nenhuma partida ao vivo no momento.</td>
+                        <td colspan="7" class="text-center">
+                            Nenhuma partida ao vivo no momento
+                        </td>
                     </tr>
                 {% endif %}
-
             </tbody>
         </table>
+
     </div>
 </div>
 
-{% endblock %}
+</body>
+</html>
