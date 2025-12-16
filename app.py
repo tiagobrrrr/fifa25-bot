@@ -7,81 +7,97 @@ from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# ✅ IMPORT CORRETO DO SCRAPER
 from web_scraper.stadium_scraper import StadiumScraper
 
 # =========================
-# CONFIGURAÇÕES BÁSICAS
+# CONFIG
 # =========================
-
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app")
 
-BR_TZ = pytz.timezone("America/Sao_Paulo")
+TZ_BR = pytz.timezone("America/Sao_Paulo")
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///fifa25.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///matches.db")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
 # =========================
-# MODELO
+# MODEL
 # =========================
-
 class Match(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     league = db.Column(db.String(100))
-    home = db.Column(db.String(100))
-    away = db.Column(db.String(100))
+    player_home = db.Column(db.String(100))
+    player_away = db.Column(db.String(100))
     stadium = db.Column(db.String(100))
     match_time = db.Column(db.String(50))
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(BR_TZ))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(TZ_BR))
 
 # =========================
-# SCRAPER
+# DB INIT
 # =========================
+with app.app_context():
+    db.create_all()
+    logger.info("[DB] Tabelas criadas/verificadas")
 
-scraper = StadiumScraper()
-
+# =========================
+# SCRAPER JOB
+# =========================
 def scan_and_save():
     logger.info("[SCAN] Execução iniciada")
 
     try:
-        matches = scraper.collect()
+        scraper = StadiumScraper()
+        matches = scraper.scan_and_parse()
 
         if not matches:
             logger.warning("[SCAN] Nenhuma partida encontrada")
             return
 
-        count = 0
+        saved = 0
         for m in matches:
             match = Match(
                 league=m.get("league"),
-                home=m.get("home"),
-                away=m.get("away"),
+                player_home=m.get("player_home"),
+                player_away=m.get("player_away"),
                 stadium=m.get("stadium"),
-                match_time=m.get("time"),
+                match_time=m.get("match_time"),
             )
             db.session.add(match)
-            count += 1
+            saved += 1
 
         db.session.commit()
-        logger.info(f"[SCAN] OK — {count} partidas salvas")
+        logger.info(f"[SCAN] OK — {saved} partidas salvas")
 
     except Exception as e:
         logger.exception(f"[SCAN] Erro crítico: {e}")
 
 # =========================
-# ROTAS
+# SCHEDULER
 # =========================
+scheduler = BackgroundScheduler(timezone=TZ_BR)
+scheduler.add_job(scan_and_save, "interval", seconds=30)
+scheduler.start()
 
+logger.info("[SCHEDULER] Ativo — intervalo 30s")
+
+# =========================
+# ROUTES
+# =========================
 @app.route("/")
 def dashboard():
     matches = Match.query.order_by(Match.created_at.desc()).limit(50).all()
-    last_scan = datetime.now(BR_TZ).strftime("%d/%m/%Y %H:%M:%S")
+
+    last_scan = matches[0].created_at.strftime("%d/%m/%Y %H:%M:%S") if matches else "—"
 
     return render_template(
         "dashboard.html",
@@ -90,19 +106,7 @@ def dashboard():
     )
 
 # =========================
-# STARTUP
+# MAIN
 # =========================
-
-with app.app_context():
-    db.create_all()
-    logger.info("[DB] Tabelas criadas/verificadas")
-
-scheduler = BackgroundScheduler(timezone=BR_TZ)
-scheduler.add_job(scan_and_save, "interval", seconds=30)
-scheduler.start()
-
-logger.info("[SCHEDULER] Ativo — intervalo 30s")
-
-# ⚠️ IMPORTANTE PARA O RENDER
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
