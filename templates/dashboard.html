@@ -2,115 +2,111 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>FIFA25 Bot</title>
-
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
+    <title>FIFA 25 – Live Scraper</title>
     <style>
-        /* Correções rápidas de contraste */
-        h1, h2, h3, h4, h5, h6,
-        th, td,
-        span, p, div {
-            color: #ffffff !important;
+        body {
+            background: #0f172a;
+            color: #e5e7eb;
+            font-family: Arial, sans-serif;
         }
 
-        .card {
-            background: linear-gradient(145deg, #1e293b, #0f172a);
-            border-radius: 12px;
-            padding: 20px;
+        h1 {
+            margin-bottom: 10px;
         }
 
-        .table thead th {
-            background-color: #1f2937;
-            color: #ffffff !important;
-            font-weight: 600;
+        .container {
+            width: 95%;
+            margin: auto;
         }
 
-        .table tbody td {
-            background-color: transparent;
-            color: #ffffff !important;
-        }
-
-        .badge-live {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 18px;
-            font-weight: 600;
-            color: #ffffff;
-        }
-
-        .badge-live::before {
-            content: "";
-            width: 14px;
-            height: 14px;
-            background-color: red;
-            border-radius: 50%;
-            display: inline-block;
-        }
-
-        .last-scan {
-            color: #ffffff !important;
-            opacity: 0.85;
-            font-size: 14px;
+        .filters {
+            display: flex;
+            gap: 10px;
             margin-bottom: 15px;
+        }
+
+        select, button {
+            padding: 8px;
+            border-radius: 6px;
+            border: none;
+        }
+
+        button {
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #020617;
+        }
+
+        th, td {
+            padding: 10px;
+            border-bottom: 1px solid #1e293b;
+            text-align: left;
+        }
+
+        th {
+            background: #020617;
+        }
+
+        .status {
+            margin-bottom: 10px;
+            color: #22c55e;
         }
     </style>
 </head>
-
 <body>
 
-<div class="container-fluid">
+<div class="container">
+    <h1>⚽ FIFA 25 – Dashboard</h1>
 
-    <h1>Painel — Monitoramento</h1>
-
-    <div class="last-scan">
-        Última varredura: {{ last_scan }}
+    <div class="status">
+        🟢 Scraper ativo e coletando automaticamente
     </div>
 
-    <div class="card mt-3">
+    <!-- 🔥 5 OPÇÕES -->
+    <form class="filters" method="get">
+        <select name="league">
+            <option value="">Todas as ligas</option>
+            {% for l in leagues %}
+                <option value="{{ l }}">{{ l }}</option>
+            {% endfor %}
+        </select>
 
-        <div class="badge-live mb-3">
-            Partidas Ao Vivo
-        </div>
+        <select name="stadium">
+            <option value="">Todos os estádios</option>
+            {% for s in stadiums %}
+                <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+        </select>
 
-        <table class="table table-hover table-dark">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Time 1</th>
-                    <th>Time 2</th>
-                    <th>Placar</th>
-                    <th>Liga</th>
-                    <th>Horário</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
+        <button type="submit">Filtrar</button>
+    </form>
 
-            <tbody>
-                {% if matches %}
-                    {% for match in matches %}
-                    <tr>
-                        <td>{{ match.id }}</td>
-                        <td>{{ match.team1 }}</td>
-                        <td>{{ match.team2 }}</td>
-                        <td>{{ match.score or '-' }}</td>
-                        <td>{{ match.league or '-' }}</td>
-                        <td>{{ match.match_time or '-' }}</td>
-                        <td>{{ match.status }}</td>
-                    </tr>
-                    {% endfor %}
-                {% else %}
-                    <tr>
-                        <td colspan="7" class="text-center">
-                            Nenhuma partida ao vivo no momento
-                        </td>
-                    </tr>
-                {% endif %}
-            </tbody>
-        </table>
-
-    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Liga</th>
+                <th>Estádio</th>
+                <th>Horário</th>
+                <th>Coletado em</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in matches %}
+            <tr>
+                <td>{{ m.league }}</td>
+                <td>{{ m.stadium }}</td>
+                <td>{{ m.match_time }}</td>
+                <td>{{ m.created_at.strftime('%d/%m %H:%M:%S') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 
 </body>
