@@ -1,361 +1,114 @@
 import os
-import logging
-from logging.handlers import RotatingFileHandler
-from flask import Flask, render_template, jsonify, request, flash, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.middleware.proxy_fix import ProxyFix
-from threading import Thread, Event, Lock
+import threading
 import time
-import datetime
-import pytz
+from datetime import datetime
 
-from models import db, Player, Team, Match, FinishedMatchArchive
-from web_scraper import FIFA25Scraper
-from data_analyzer import DataAnalyzer
-from telegram_service import TelegramNotifier
+from flask import Flask, render_template, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func
+from dotenv import load_dotenv
+import logging
 
-# ------------------------------------------------------------------------------------------------
-# FLASK APP
-# ------------------------------------------------------------------------------------------------
+# ======================================================
+# Configuração básica
+# ======================================================
 
-app = Flask(__name__, template_folder="templates")
+load_dotenv()
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+logging.basicConfig(level=logging.INFO)
+
+app = Flask(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL não definida")
+
+# Corrige postgres:// para postgresql://
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.secret_key = os.environ.get("SESSION_SECRET", "fifa25-bot-secret-key")
 
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+db = SQLAlchemy(app)
 
-db.init_app(app)
+# ======================================================
+# Models
+# ======================================================
 
-# ------------------------------------------------------------------------------------------------
-# LOGGING
-# ------------------------------------------------------------------------------------------------
+class Player(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
 
-if not os.path.exists("logs"):
-    os.makedirs("logs")
+class Match(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    player_home = db.Column(db.String(100))
+    player_away = db.Column(db.String(100))
+    score_home = db.Column(db.Integer)
+    score_away = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-handler = RotatingFileHandler("logs/fifa25_bot.log", maxBytes=5_000_000, backupCount=5)
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-handler.setFormatter(formatter)
-handler.setLevel(logging.INFO)
-app.logger.addHandler(handler)
-app.logger.setLevel(logging.INFO)
+# ======================================================
+# Inicialização do banco
+# ======================================================
 
-BRAZIL_TZ = pytz.timezone("America/Sao_Paulo")
+with app.app_context():
+    db.create_all()
+    logging.info("Banco de dados inicializado")
 
-# ------------------------------------------------------------------------------------------------
-# SERVICES
-# ------------------------------------------------------------------------------------------------
-
-scraper = FIFA25Scraper()
-analyzer = DataAnalyzer()
-telegram = TelegramNotifier()
-
-stop_event = Event()
-SCAN_INTERVAL_SECONDS = int(os.environ.get("SCAN_INTERVAL", 30))
-last_scan = None
-
-_worker_started = False
-_worker_lock = Lock()
-
-# ------------------------------------------------------------------------------------------------
-# SAVE MATCHES
-# ------------------------------------------------------------------------------------------------
-
-def persist_match_if_new(m):
-    with app.app_context():    # <<< CORREÇÃO QUE RESOLVE O ERRO
-        try:
-            ts = None
-            if m.get("timestamp"):
-                try:
-                    ts = datetime.datetime.fromisoformat(m["timestamp"])
-                except:
-                    ts = None
-
-            date_val = ts.date() if ts else datetime.date.today()
-            time_val = ts.time() if ts else None
-
-            existing = Match.query.filter_by(match_id=m["match_id"], player=m.get("player_left")).first()
-
-            if existing:
-                changed = False
-                if existing.status != m.get("status"):
-                    existing.status = m.get("status")
-                    changed = True
-
-                if changed:
-                    db.session.commit()
-
-                return existing
-
-            left = Match(
-                match_id=m["match_id"],
-                player=m["player_left"],
-                team=m["team_left"],
-                opponent=m["team_right"],
-                goals=m.get("goals_left"),
-                goals_against=m.get("goals_right"),
-                win=(m.get("goals_left") is not None and m.get("goals_left") > m.get("goals_right"))
-                    if m.get("goals_left") is not None else None,
-                league=m.get("league"),
-                stadium=m.get("stadium"),
-                date=date_val,
-                time=time_val,
-                status=m.get("status", "planned")
-            )
-
-            right = Match(
-                match_id=m["match_id"],
-                player=m["player_right"],
-                team=m["team_right"],
-                opponent=m["team_left"],
-                goals=m.get("goals_right"),
-                goals_against=m.get("goals_left"),
-                win=(m.get("goals_right") is not None and m.get("goals_right") > m.get("goals_left"))
-                    if m.get("goals_right") is not None else None,
-                league=m.get("league"),
-                stadium=m.get("stadium"),
-                date=date_val,
-                time=time_val,
-                status=m.get("status", "planned")
-            )
-
-            db.session.add_all([left, right])
-            db.session.commit()
-
-            if m.get("status", "").lower() in ("finished", "final"):
-                a1 = FinishedMatchArchive(
-                    match_id=m["match_id"],
-                    player=left.player,
-                    team=left.team,
-                    opponent=left.opponent,
-                    goals=left.goals,
-                    goals_against=left.goals_against,
-                    win=left.win,
-                    league=left.league,
-                    stadium=left.stadium,
-                    date=left.date,
-                    time=left.time
-                )
-
-                a2 = FinishedMatchArchive(
-                    match_id=m["match_id"],
-                    player=right.player,
-                    team=right.team,
-                    opponent=right.opponent,
-                    goals=right.goals,
-                    goals_against=right.goals_against,
-                    win=right.win,
-                    league=right.league,
-                    stadium=right.stadium,
-                    date=right.date,
-                    time=right.time
-                )
-
-                db.session.add_all([a1, a2])
-                db.session.commit()
-
-            app.logger.info(f"Saved match {m['match_id']}")
-            return left
-
-        except Exception as e:
-            app.logger.exception(f"Error persisting match: {e}")
-            db.session.rollback()
-            return None
-
-# ------------------------------------------------------------------------------------------------
-# BACKGROUND SCRAPER
-# ------------------------------------------------------------------------------------------------
-
-def scan_and_persist():
-    global last_scan
-
-    with app.app_context():    # <<< CORREÇÃO QUE RESOLVE O ERRO
-        try:
-            app.logger.info("Scanning for matches...")
-            matches = scraper.get_live_matches() + scraper.get_recent_matches()
-
-            last_scan = datetime.datetime.now(BRAZIL_TZ)
-            app.logger.info(f"Found {len(matches)} matches")
-
-            players = {p.username for p in Player.query.all()}
-
-            for m in matches:
-                if players and not (m.get("player_left") in players or m.get("player_right") in players):
-                    continue
-
-                persist_match_if_new(m)
-
-            return True
-
-        except Exception as e:
-            app.logger.exception(f"Error scanning: {e}")
-            try:
-                telegram.send(f"❌ Bot scanning error: {e}")
-            except:
-                pass
-            return False
-
+# ======================================================
+# Background worker (SEM SCRAPER por enquanto)
+# ======================================================
 
 def background_worker():
-    app.logger.info("Background worker started")
+    logging.info("Background worker iniciado")
 
-    while not stop_event.is_set():
-        ok = scan_and_persist()
+    while True:
+        try:
+            with app.app_context():
+                logging.info("Worker ativo - verificação básica")
 
-        sleep_time = SCAN_INTERVAL_SECONDS if ok else max(60, SCAN_INTERVAL_SECONDS * 2)
-        stop_event.wait(sleep_time)
+                total_matches = db.session.query(func.count(Match.id)).scalar()
+                total_players = db.session.query(func.count(Player.id)).scalar()
 
-    app.logger.info("Background worker stopped")
-    try:
-        telegram.send("⚠️ Bot parado.")
-    except:
-        pass
+                logging.info(
+                    f"Status DB → Matches: {total_matches}, Players: {total_players}"
+                )
 
+        except Exception as e:
+            logging.error(f"Erro no worker: {e}")
 
-def start_worker_once():
-    global _worker_started
+        time.sleep(60)
 
-    if os.environ.get("RUN_SCRAPER", "true").lower() not in ("1", "true", "yes"):
-        app.logger.info("Scraper desativado via RUN_SCRAPER")
-        return
+threading.Thread(target=background_worker, daemon=True).start()
 
-    with _worker_lock:
-        if not _worker_started:
-            Thread(target=background_worker, daemon=True).start()
-            _worker_started = True
-            app.logger.info("Background worker iniciado")
-
-# ------------------------------------------------------------------------------------------------
-# ROTAS
-# ------------------------------------------------------------------------------------------------
-
-@app.before_first_request
-def setup():
-    with app.app_context():
-        db.create_all()
-
-    start_worker_once()
-
+# ======================================================
+# Rotas
+# ======================================================
 
 @app.route("/")
 def dashboard():
     with app.app_context():
-        today = datetime.date.today()
-        rows = Match.query.filter(Match.date == today).all()
+        matches = Match.query.order_by(Match.created_at.desc()).limit(50).all()
+        total_matches = Match.query.count()
+        total_players = Player.query.count()
 
-    matches_data = [{
-        "match_id": r.match_id,
-        "player": r.player,
-        "team": r.team,
-        "opponent": r.opponent,
-        "goals": r.goals,
-        "goals_against": r.goals_against,
-        "win": r.win,
-        "league": r.league,
-        "stadium": r.stadium,
-        "date": r.date.isoformat(),
-        "time": r.time.isoformat() if r.time else None,
-        "status": r.status
-    } for r in rows]
+    return render_template(
+        "dashboard.html",
+        matches=matches,
+        total_matches=total_matches,
+        total_players=total_players,
+        last_scan=datetime.utcnow()
+    )
 
-    stats = analyzer.get_daily_stats(matches_data)
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "time": datetime.utcnow().isoformat()})
 
-    return render_template("dashboard.html", matches=matches_data, stats=stats, last_scan=last_scan)
-
-
-@app.route("/api/live")
-def api_live():
-    with app.app_context():
-        rows = Match.query.filter(Match.status.in_(["Live", "Started", "live", "started"])).all()
-
-    data = [{
-        "match_id": r.match_id,
-        "player": r.player,
-        "team": r.team,
-        "opponent": r.opponent,
-        "goals": r.goals,
-        "status": r.status
-    } for r in rows]
-
-    return jsonify({"matches": data})
-
-
-@app.route("/players")
-def players_page():
-    with app.app_context():
-        players = Player.query.order_by(Player.username).all()
-
-    return render_template("players.html", players=players)
-
-
-@app.route("/players/add", methods=["POST"])
-def players_add():
-    username = request.form.get("username")
-    display = request.form.get("display_name")
-
-    if not username:
-        flash("username obrigatório", "error")
-        return redirect(url_for("players_page"))
-
-    with app.app_context():
-        if Player.query.filter_by(username=username).first():
-            flash("Jogador já existe", "warning")
-            return redirect(url_for("players_page"))
-
-        db.session.add(Player(username=username, display_name=display))
-        db.session.commit()
-
-    flash("Jogador adicionado", "success")
-    return redirect(url_for("players_page"))
-
-
-@app.route("/players/delete/<int:id>", methods=["POST"])
-def players_delete(id):
-    with app.app_context():
-        obj = Player.query.get(id)
-        if obj:
-            db.session.delete(obj)
-            db.session.commit()
-
-    return redirect(url_for("players_page"))
-
-
-@app.route("/matches")
-def matches_page():
-    page = int(request.args.get("page", 1))
-    per = 200
-
-    with app.app_context():
-        rows = Match.query.order_by(Match.date.desc(), Match.time.desc()) \
-                          .limit(per).offset((page - 1) * per).all()
-
-    return render_template("matches.html", matches=rows, page=page)
-
-
-@app.route("/admin/shutdown", methods=["POST"])
-def admin_shutdown():
-    stop_event.set()
-    flash("Bot será finalizado", "info")
-    return redirect(url_for("dashboard"))
-
-
-@app.route("/healthz")
-def healthz():
-    return "ok", 200
-
-
-# ------------------------------------------------------------------------------------------------
-# RUN
-# ------------------------------------------------------------------------------------------------
+# ======================================================
+# Entry point local
+# ======================================================
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=10000, debug=True)
