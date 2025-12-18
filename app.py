@@ -1,6 +1,7 @@
 import os
 import logging
 from datetime import datetime
+import pytz
 
 from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
@@ -8,68 +9,83 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from web_scraper.stadium_scraper import StadiumScraper
 
-# --------------------------------------------------
+# ======================================================
 # CONFIGURAÇÕES BÁSICAS
-# --------------------------------------------------
+# ======================================================
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app")
 
-app = Flask(__name__)
+BRAZIL_TZ = pytz.timezone("America/Sao_Paulo")
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "sqlite:///fifa25.db"
-).replace("postgres://", "postgresql://")
+    "sqlite:///database.db"
+)
 
+# ======================================================
+# APP + DB
+# ======================================================
+
+app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# --------------------------------------------------
+# ======================================================
 # MODELO
-# --------------------------------------------------
+# ======================================================
 
 class Match(db.Model):
     __tablename__ = "match"
 
     id = db.Column(db.Integer, primary_key=True)
-    league = db.Column(db.String(120))
-    team_a = db.Column(db.String(120))
-    team_b = db.Column(db.String(120))
-    score = db.Column(db.String(20))
-    stadium = db.Column(db.String(120))
-    status = db.Column(db.String(50))
-    collected_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# --------------------------------------------------
+    league = db.Column(db.String(100))
+    team_home = db.Column(db.String(100))
+    team_away = db.Column(db.String(100))
+    score = db.Column(db.String(20))
+    stadium = db.Column(db.String(100))
+    status = db.Column(db.String(50))
+
+    collected_at = db.Column(db.DateTime, default=lambda: datetime.now(BRAZIL_TZ))
+
+# ======================================================
+# BANCO
+# ======================================================
+
+with app.app_context():
+    db.drop_all()
+    db.create_all()
+    logger.info("[DB] Tabelas recriadas")
+
+# ======================================================
 # SCRAPER + SCHEDULER
-# --------------------------------------------------
+# ======================================================
 
 def scan_and_save():
     logger.info("[SCAN] Execução iniciada")
 
     try:
         scraper = StadiumScraper()
-        matches = scraper.collect_matches()
+        matches = scraper.collect()
 
         if not matches:
             logger.warning("[SCAN] Nenhuma partida encontrada")
             return
 
-        Match.query.delete()
-
         for m in matches:
-            db.session.add(Match(
+            match = Match(
                 league=m.get("league"),
-                team_a=m.get("team_a"),
-                team_b=m.get("team_b"),
+                team_home=m.get("home"),
+                team_away=m.get("away"),
                 score=m.get("score"),
                 stadium=m.get("stadium"),
                 status=m.get("status"),
-                collected_at=datetime.utcnow()
-            ))
+                collected_at=datetime.now(BRAZIL_TZ)
+            )
+            db.session.add(match)
 
         db.session.commit()
         logger.info(f"[SCAN] {len(matches)} partidas salvas")
@@ -77,14 +93,25 @@ def scan_and_save():
     except Exception as e:
         logger.exception(f"[SCAN] Erro crítico: {e}")
 
-# --------------------------------------------------
+# ======================================================
+# SCHEDULER
+# ======================================================
+
+scheduler = BackgroundScheduler(timezone=BRAZIL_TZ)
+scheduler.add_job(scan_and_save, "interval", seconds=30)
+
+scheduler.start()
+logger.info("[SCHEDULER] Ativo (30s)")
+
+# ======================================================
 # ROTAS
-# --------------------------------------------------
+# ======================================================
 
 @app.route("/")
 def dashboard():
     matches = Match.query.order_by(Match.collected_at.desc()).all()
-    last_scan = datetime.utcnow().strftime("%d/%m/%Y %H:%M:%S UTC")
+
+    last_scan = matches[0].collected_at if matches else None
 
     return render_template(
         "dashboard.html",
@@ -92,20 +119,9 @@ def dashboard():
         last_scan=last_scan
     )
 
-# --------------------------------------------------
-# INIT
-# --------------------------------------------------
-
-with app.app_context():
-    db.create_all()
-    logger.info("[DB] Tabelas recriadas")
-
-scheduler = BackgroundScheduler()
-scheduler.add_job(scan_and_save, "interval", seconds=30)
-scheduler.start()
-logger.info("[SCHEDULER] Ativo (30s)")
-
-# --------------------------------------------------
+# ======================================================
+# MAIN
+# ======================================================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)

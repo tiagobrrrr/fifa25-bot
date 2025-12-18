@@ -2,112 +2,139 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>FIFA 25 – Live Scraper</title>
+    <title>FIFA 25 Bot — Monitoramento</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
     <style>
         body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
             background: #0f172a;
-            color: #e5e7eb;
-            font-family: Arial, sans-serif;
+            color: #ffffff;
         }
 
-        h1 {
-            margin-bottom: 10px;
+        header {
+            background: #020617;
+            padding: 16px 24px;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 600;
         }
 
         .container {
-            width: 95%;
-            margin: auto;
+            padding: 24px;
         }
 
-        .filters {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        select, button {
-            padding: 8px;
-            border-radius: 6px;
-            border: none;
-        }
-
-        button {
-            background: #2563eb;
-            color: white;
-            cursor: pointer;
+        .status {
+            margin-bottom: 20px;
+            padding: 12px 16px;
+            background: #020617;
+            border-radius: 8px;
+            border: 1px solid #1e293b;
+            font-size: 14px;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
             background: #020617;
+            border-radius: 8px;
+            overflow: hidden;
         }
 
         th, td {
-            padding: 10px;
-            border-bottom: 1px solid #1e293b;
-            text-align: left;
+            padding: 12px 10px;
+            text-align: center;
+            font-size: 14px;
+            white-space: nowrap;
         }
 
         th {
             background: #020617;
+            border-bottom: 1px solid #1e293b;
+            font-weight: 600;
+            color: #ffffff;
         }
 
-        .status {
-            margin-bottom: 10px;
-            color: #22c55e;
+        td {
+            border-bottom: 1px solid #1e293b;
+            color: #e5e7eb;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 20px;
+            color: #94a3b8;
+        }
+
+        footer {
+            text-align: center;
+            padding: 12px;
+            font-size: 12px;
+            color: #94a3b8;
         }
     </style>
 </head>
 <body>
 
+<header>
+    <h1>Painel de Monitoramento — FIFA 25 Bot</h1>
+</header>
+
 <div class="container">
-    <h1>⚽ FIFA 25 – Dashboard</h1>
 
     <div class="status">
-        🟢 Scraper ativo e coletando automaticamente
+        <strong>Status:</strong> Bot ativo e monitorando partidas
+        <br>
+        <strong>Última varredura:</strong> {{ last_scan }}
     </div>
 
-    <!-- 🔥 5 OPÇÕES -->
-    <form class="filters" method="get">
-        <select name="league">
-            <option value="">Todas as ligas</option>
-            {% for l in leagues %}
-                <option value="{{ l }}">{{ l }}</option>
-            {% endfor %}
-        </select>
-
-        <select name="stadium">
-            <option value="">Todos os estádios</option>
-            {% for s in stadiums %}
-                <option value="{{ s }}">{{ s }}</option>
-            {% endfor %}
-        </select>
-
-        <button type="submit">Filtrar</button>
-    </form>
-
+    {% if matches and matches|length > 0 %}
     <table>
         <thead>
             <tr>
                 <th>Liga</th>
+                <th>Casa</th>
+                <th>Fora</th>
+                <th>Placar</th>
                 <th>Estádio</th>
-                <th>Horário</th>
+                <th>Status</th>
                 <th>Coletado em</th>
             </tr>
         </thead>
         <tbody>
-            {% for m in matches %}
+            {% for match in matches %}
             <tr>
-                <td>{{ m.league }}</td>
-                <td>{{ m.stadium }}</td>
-                <td>{{ m.match_time }}</td>
-                <td>{{ m.created_at.strftime('%d/%m %H:%M:%S') }}</td>
+                <td>{{ match.league }}</td>
+                <td>{{ match.home }}</td>
+                <td>{{ match.away }}</td>
+                <td>{{ match.score or '-' }}</td>
+                <td>{{ match.stadium or '-' }}</td>
+                <td>{{ match.status }}</td>
+                <td>{{ match.collected_at }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    {% else %}
+        <div class="empty">
+            Nenhuma partida encontrada no momento.
+        </div>
+    {% endif %}
+
 </div>
+
+<footer>
+    FIFA 25 Bot — Monitoramento automático
+</footer>
 
 </body>
 </html>
