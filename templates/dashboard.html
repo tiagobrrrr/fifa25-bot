@@ -2,8 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>FIFA 25 Bot — Monitoramento</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Painel de Monitoramento FIFA 25</title>
 
     <style>
         body {
@@ -21,7 +20,7 @@
 
         header h1 {
             margin: 0;
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 600;
         }
 
@@ -29,81 +28,111 @@
             padding: 24px;
         }
 
-        .status {
-            margin-bottom: 20px;
-            padding: 12px 16px;
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .card {
             background: #020617;
-            border-radius: 8px;
             border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .card h3 {
+            margin: 0 0 8px 0;
             font-size: 14px;
+            color: #cbd5f5;
+        }
+
+        .card span {
+            font-size: 22px;
+            font-weight: bold;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
             background: #020617;
+            border: 1px solid #1e293b;
             border-radius: 8px;
             overflow: hidden;
         }
 
+        thead {
+            background: #020617;
+        }
+
         th, td {
-            padding: 12px 10px;
-            text-align: center;
-            font-size: 14px;
-            white-space: nowrap;
+            padding: 10px 12px;
+            border-bottom: 1px solid #1e293b;
+            font-size: 13px;
+            text-align: left;
         }
 
         th {
-            background: #020617;
-            border-bottom: 1px solid #1e293b;
+            color: #cbd5f5;
             font-weight: 600;
-            color: #ffffff;
         }
 
-        td {
-            border-bottom: 1px solid #1e293b;
-            color: #e5e7eb;
+        tr:hover {
+            background: #020617;
         }
 
-        tr:last-child td {
-            border-bottom: none;
+        .status-live {
+            color: #22c55e;
+            font-weight: bold;
         }
 
-        .empty {
-            text-align: center;
-            padding: 20px;
+        .status-finished {
             color: #94a3b8;
         }
 
         footer {
-            text-align: center;
-            padding: 12px;
+            margin-top: 32px;
             font-size: 12px;
             color: #94a3b8;
+            text-align: center;
         }
     </style>
 </head>
+
 <body>
 
 <header>
-    <h1>Painel de Monitoramento — FIFA 25 Bot</h1>
+    <h1>Painel de Monitoramento — FIFA 25</h1>
 </header>
 
 <div class="container">
 
-    <div class="status">
-        <strong>Status:</strong> Bot ativo e monitorando partidas
-        <br>
-        <strong>Última varredura:</strong> {{ last_scan }}
+    <!-- RESUMO -->
+    <div class="stats">
+        <div class="card">
+            <h3>Total de partidas</h3>
+            <span>{{ matches|length }}</span>
+        </div>
+
+        <div class="card">
+            <h3>Partidas ao vivo</h3>
+            <span>{{ matches | selectattr("status", "equalto", "LIVE") | list | length }}</span>
+        </div>
+
+        <div class="card">
+            <h3>Última varredura</h3>
+            <span>{{ last_scan }}</span>
+        </div>
     </div>
 
-    {% if matches and matches|length > 0 %}
+    <!-- TABELA -->
     <table>
         <thead>
             <tr>
                 <th>Liga</th>
-                <th>Casa</th>
-                <th>Fora</th>
+                <th>Player Casa</th>
+                <th>Player Fora</th>
                 <th>Placar</th>
                 <th>Estádio</th>
                 <th>Status</th>
@@ -116,25 +145,22 @@
                 <td>{{ match.league }}</td>
                 <td>{{ match.home }}</td>
                 <td>{{ match.away }}</td>
-                <td>{{ match.score or '-' }}</td>
-                <td>{{ match.stadium or '-' }}</td>
-                <td>{{ match.status }}</td>
+                <td>{{ match.score or "-" }}</td>
+                <td>{{ match.stadium }}</td>
+                <td class="{{ 'status-live' if match.status == 'LIVE' else 'status-finished' }}">
+                    {{ match.status }}
+                </td>
                 <td>{{ match.collected_at }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    {% else %}
-        <div class="empty">
-            Nenhuma partida encontrada no momento.
-        </div>
-    {% endif %}
+
+    <footer>
+        Monitoramento automático • FIFA 25 Bot
+    </footer>
 
 </div>
-
-<footer>
-    FIFA 25 Bot — Monitoramento automático
-</footer>
 
 </body>
 </html>
