@@ -21,7 +21,7 @@ DATABASE_URL = os.environ.get(
     "sqlite:///local.db"
 )
 
-# Fix para Render PostgreSQL
+# Fix para Render PostgreSQL (postgres:// -> postgresql://)
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -67,7 +67,7 @@ def init_database():
             if not inspector.has_table("match"):
                 logger.info("[DB] Criando tabelas...")
                 db.create_all()
-                logger.info("[DB] Tabelas criadas com sucesso")
+                logger.info("[DB] ✅ Tabelas criadas com sucesso")
             else:
                 logger.info("[DB] Tabelas já existem")
     except Exception as e:
@@ -83,7 +83,7 @@ def scan_and_save():
 
     try:
         scraper = StadiumScraper()
-        results = scraper.collect()  # ✅ CORRIGIDO
+        results = scraper.collect()  # ✅ CORRIGIDO (era .run())
 
         if not results:
             logger.warning("[SCAN] Nenhuma partida encontrada")
@@ -102,13 +102,13 @@ def scan_and_save():
                 db.session.add(match)
 
             db.session.commit()
-            logger.info(f"[SCAN] {len(results)} partidas salvas")
+            logger.info(f"[SCAN] ✅ {len(results)} partidas salvas")
 
     except Exception as e:
         logger.exception("[SCAN] Erro crítico")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(scan_and_save, "interval", seconds=60)  # Mudei para 60s
+scheduler.add_job(scan_and_save, "interval", seconds=60)
 scheduler.start()
 
 logger.info("[SCHEDULER] Ativo (60s)")
@@ -136,7 +136,34 @@ def dashboard():
 
 @app.route("/health")
 def health():
-    return {"status": "ok", "database": DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "local"}
+    return {
+        "status": "ok",
+        "database": DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "local"
+    }
+
+# =========================
+# ROTA TEMPORÁRIA - RESET DB
+# (REMOVER DEPOIS QUE FUNCIONAR!)
+# =========================
+@app.route("/reset-db-secret-123")
+def reset_database():
+    """Rota temporária para resetar banco (REMOVER depois!)"""
+    try:
+        with app.app_context():
+            logger.warning("[DB] ⚠️  Executando reset do banco...")
+            db.drop_all()
+            db.create_all()
+            logger.info("[DB] ✅ Banco recriado via rota!")
+        return {
+            "status": "success",
+            "message": "✅ Banco recriado com sucesso! Agora remova esta rota do código."
+        }, 200
+    except Exception as e:
+        logger.error(f"[DB] ❌ Erro: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }, 500
 
 # =========================
 # ENTRYPOINT
