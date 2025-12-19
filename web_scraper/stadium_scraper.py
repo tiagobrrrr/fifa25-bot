@@ -1,6 +1,5 @@
-import requests
 import logging
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
 from typing import List, Dict
 
@@ -8,12 +7,12 @@ logger = logging.getLogger(__name__)
 
 class StadiumScraper:
     """
-    Scraper compatível com Render (requests only)
-    Coleta partidas AO VIVO + FUTURAS
+    Scraper usando Playwright para sites SPA (Single Page Application)
+    Compatível com Render
     """
 
     BASE_URL = "https://football.esportsbattle.com/en/live"
-
+    
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -21,115 +20,186 @@ class StadiumScraper:
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    def __init__(self, timeout: int = 15):
-        self.timeout = timeout
+    def __init__(self, timeout: int = 30):
+        self.timeout = timeout * 1000  # Converte para ms
 
     # =====================================================
-    # MÉTODO PRINCIPAL (o app.py deve chamar ESSE método)
+    # MÉTODO PRINCIPAL
     # =====================================================
     def collect(self) -> List[Dict]:
-        logger.info("[SCRAPER] Coleta iniciada")
+        logger.info("[SCRAPER] Coleta iniciada com Playwright")
 
         try:
-            html = self._fetch_page()
-            matches = self._parse_matches(html)
-
-            logger.info(f"[SCRAPER] {len(matches)} partidas encontradas")
-            return matches
+            with sync_playwright() as p:
+                # Lança browser headless
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-accelerated-2d-canvas',
+                        '--disable-gpu',
+                        '--window-size=1920x1080'
+                    ]
+                )
+                
+                context = browser.new_context(
+                    viewport={'width': 1920, 'height': 1080},
+                    user_agent=self.HEADERS["User-Agent"]
+                )
+                
+                page = context.new_page()
+                
+                # Acessa página
+                logger.info(f"[SCRAPER] Acessando {self.BASE_URL}")
+                page.goto(self.BASE_URL, wait_until="networkidle", timeout=self.timeout)
+                
+                # Aguarda conteúdo carregar (tenta múltiplos seletores)
+                matches = self._wait_and_extract(page)
+                
+                browser.close()
+                
+                logger.info(f"[SCRAPER] {len(matches)} partidas encontradas")
+                return matches
 
         except Exception as e:
             logger.exception(f"[SCRAPER] Erro crítico: {e}")
             return []
 
     # =====================================================
-    # HTTP
+    # EXTRAÇÃO DE DADOS
     # =====================================================
-    def _fetch_page(self) -> str:
-        response = requests.get(
-            self.BASE_URL,
-            headers=self.HEADERS,
-            timeout=self.timeout
-        )
-        response.raise_for_status()
-        return response.text
-
-    # =====================================================
-    # PARSER PRINCIPAL
-    # =====================================================
-    def _parse_matches(self, html: str) -> List[Dict]:
-        soup = BeautifulSoup(html, "html.parser")
-        results = []
-
-        # Cards de partidas (estrutura genérica e resiliente)
-        match_cards = soup.select("div.match, div.event, div.card")
-
-        for card in match_cards:
+    def _wait_and_extract(self, page) -> List[Dict]:
+        """Aguarda e extrai dados com múltiplas estratégias"""
+        
+        # Lista de seletores possíveis (do mais específico ao mais genérico)
+        selectors_to_try = [
+            ".match-card",
+            ".match-item",
+            ".game-card",
+            "[class*='match']",
+            "[class*='game']",
+            ".event-row",
+            ".fixture"
+        ]
+        
+        matches_elements = []
+        
+        for selector in selectors_to_try:
             try:
-                match = self._parse_single_match(card)
-                if match:
-                    results.append(match)
+                logger.info(f"[SCRAPER] Tentando seletor: {selector}")
+                page.wait_for_selector(selector, timeout=5000)
+                matches_elements = page.query_selector_all(selector)
+                
+                if matches_elements and len(matches_elements) > 0:
+                    logger.info(f"[SCRAPER] ✓ Seletor funcionou: {selector} ({len(matches_elements)} elementos)")
+                    break
+            except PlaywrightTimeout:
+                continue
+        
+        if not matches_elements:
+            logger.warning("[SCRAPER] Nenhum seletor funcionou, tentando extrair todo conteúdo...")
+            return self._extract_from_full_page(page)
+        
+        # Extrai dados dos elementos encontrados
+        results = []
+        for elem in matches_elements[:50]:  # Limita a 50 partidas
+            try:
+                match_data = self._parse_match_element(elem, page)
+                if match_data:
+                    results.append(match_data)
             except Exception as e:
-                logger.warning(f"[SCRAPER] Erro ao processar card: {e}")
-
+                logger.warning(f"[SCRAPER] Erro ao parsear elemento: {e}")
+                continue
+        
         return results
 
     # =====================================================
-    # PARSER DE UMA PARTIDA
+    # PARSER DE ELEMENTO INDIVIDUAL
     # =====================================================
-    def _parse_single_match(self, card) -> Dict | None:
-        def safe_text(selector_list):
-            for sel in selector_list:
-                el = card.select_one(sel)
-                if el and el.get_text(strip=True):
-                    return el.get_text(strip=True)
+    def _parse_match_element(self, element, page) -> Dict | None:
+        """Extrai dados de um elemento de partida"""
+        
+        def safe_extract(selectors_list):
+            """Tenta múltiplos seletores"""
+            for sel in selectors_list:
+                try:
+                    el = element.query_selector(sel)
+                    if el:
+                        text = el.inner_text().strip()
+                        if text:
+                            return text
+                except:
+                    continue
             return None
-
-        league = safe_text([
-            ".league",
-            ".tournament",
-            ".competition"
-        ]) or "Unknown League"
-
-        home = safe_text([
-            ".home .team-name",
-            ".team.home",
-            ".team1",
-            ".player1"
+        
+        # Tenta extrair informações
+        league = safe_extract([
+            ".league", ".tournament", ".competition", 
+            "[class*='league']", "[class*='tournament']"
         ])
-
-        away = safe_text([
-            ".away .team-name",
-            ".team.away",
-            ".team2",
-            ".player2"
+        
+        home = safe_extract([
+            ".home-team", ".team-home", ".team1", ".player1",
+            "[class*='home']", "[class*='team1']"
         ])
-
+        
+        away = safe_extract([
+            ".away-team", ".team-away", ".team2", ".player2",
+            "[class*='away']", "[class*='team2']"
+        ])
+        
+        score = safe_extract([
+            ".score", ".result", ".goals", 
+            "[class*='score']", "[class*='result']"
+        ])
+        
+        status = safe_extract([
+            ".status", ".live", ".state",
+            "[class*='status']", "[class*='live']"
+        ])
+        
+        # Valida se tem dados mínimos
         if not home or not away:
-            return None  # ignora cards quebrados
-
-        score = safe_text([
-            ".score",
-            ".result",
-            ".score-live"
-        ]) or "-"
-
-        stadium = safe_text([
-            ".stadium",
-            ".venue"
-        ]) or "Virtual Stadium"
-
-        status = safe_text([
-            ".status",
-            ".live",
-            ".time"
-        ]) or "scheduled"
-
+            return None
+        
         return {
-            "league": league,
+            "league": league or "Unknown League",
             "home": home,
             "away": away,
-            "score": score,
-            "stadium": stadium,
-            "status": status,
+            "score": score or "-",
+            "stadium": "Virtual Stadium",
+            "status": status or "scheduled",
             "collected_at": datetime.utcnow()
         }
+
+    # =====================================================
+    # FALLBACK: EXTRAÇÃO DA PÁGINA COMPLETA
+    # =====================================================
+    def _extract_from_full_page(self, page) -> List[Dict]:
+        """Última tentativa: extrai texto completo e tenta parsear"""
+        
+        try:
+            # Pega screenshot para debug (opcional)
+            # page.screenshot(path="debug.png")
+            
+            # Extrai todo texto da página
+            content = page.content()
+            
+            logger.info("[SCRAPER] Tentando extrair do conteúdo completo da página...")
+            logger.info(f"[SCRAPER] Tamanho do HTML: {len(content)} caracteres")
+            
+            # Se ainda está vazio, o site pode estar bloqueando
+            if len(content) < 1000:
+                logger.error("[SCRAPER] Página muito pequena, possível bloqueio")
+                return []
+            
+            # Aqui você pode adicionar lógica customizada
+            # baseada no HTML específico do site
+            
+            return []
+            
+        except Exception as e:
+            logger.exception(f"[SCRAPER] Erro no fallback: {e}")
+            return []
