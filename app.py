@@ -83,7 +83,7 @@ def scan_and_save():
 
     try:
         scraper = StadiumScraper()
-        results = scraper.collect()  # ✅ CORRIGIDO (era .run())
+        results = scraper.collect()
 
         if not results:
             logger.warning("[SCAN] Nenhuma partida encontrada")
@@ -140,30 +140,6 @@ def health():
         "status": "ok",
         "database": DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "local"
     }
-
-# =========================
-# ROTA TEMPORÁRIA - RESET DB
-# (REMOVER DEPOIS QUE FUNCIONAR!)
-# =========================
-@app.route("/reset-db-secret-123")
-def reset_database():
-    """Rota temporária para resetar banco (REMOVER depois!)"""
-    try:
-        with app.app_context():
-            logger.warning("[DB] ⚠️  Executando reset do banco...")
-            db.drop_all()
-            db.create_all()
-            logger.info("[DB] ✅ Banco recriado via rota!")
-        return {
-            "status": "success",
-            "message": "✅ Banco recriado com sucesso! Agora remova esta rota do código."
-        }, 200
-    except Exception as e:
-        logger.error(f"[DB] ❌ Erro: {e}")
-        return {
-            "status": "error",
-            "message": str(e)
-        }, 500
 
 # =========================
 # ENTRYPOINT
