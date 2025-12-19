@@ -1,109 +1,126 @@
 import os
-import threading
-import time
 import logging
 from datetime import datetime
 
 from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.orm import scoped_session, sessionmaker
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# -----------------------------------------------------------------------------
-# CONFIG
-# -----------------------------------------------------------------------------
-DATABASE_URL = os.getenv("DATABASE_URL")
+from web_scraper.stadium_scraper import StadiumScraper
 
+# =========================
+# CONFIGURAÇÃO BÁSICA
+# =========================
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "sqlite:///local.db"
+)
+
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# -----------------------------------------------------------------------------
-# AUTOMAP (REFLETE O BANCO REAL)
-# -----------------------------------------------------------------------------
-Base = automap_base()
+# =========================
+# MODELS
+# =========================
+class Match(db.Model):
+    __tablename__ = "match"
 
+    id = db.Column(db.Integer, primary_key=True)
+
+    league = db.Column(db.String(120))
+    home = db.Column(db.String(120))
+    away = db.Column(db.String(120))
+    score = db.Column(db.String(20))
+    stadium = db.Column(db.String(120))
+    status = db.Column(db.String(50))
+
+    collected_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Player(db.Model):
+    __tablename__ = "player"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nickname = db.Column(db.String(120))
+    team = db.Column(db.String(120))
+    matches = db.Column(db.Integer, default=0)
+    wins = db.Column(db.Integer, default=0)
+    losses = db.Column(db.Integer, default=0)
+
+# =========================
+# BANCO
+# =========================
 with app.app_context():
-    Base.prepare(db.engine, reflect=True)
+    db.create_all()
+    logger.info("[DB] Tabelas prontas")
 
-# Ajuste os nomes conforme o que EXISTE no banco
-Match = Base.classes.match if "match" in Base.classes else None
-Player = Base.classes.player if "player" in Base.classes else None
+# =========================
+# SCRAPER + SCHEDULER
+# =========================
+def scan_and_save():
+    logger.info("[SCAN] Execução iniciada")
 
-# -----------------------------------------------------------------------------
+    try:
+        scraper = StadiumScraper()
+        results = scraper.run()
+
+        if not results:
+            logger.warning("[SCAN] Nenhuma partida encontrada")
+            return
+
+        with app.app_context():
+            for r in results:
+                match = Match(
+                    league=r.get("league"),
+                    home=r.get("home"),
+                    away=r.get("away"),
+                    score=r.get("score"),
+                    stadium=r.get("stadium"),
+                    status=r.get("status"),
+                )
+                db.session.add(match)
+
+            db.session.commit()
+            logger.info(f"[SCAN] {len(results)} partidas salvas")
+
+    except Exception as e:
+        logger.exception("[SCAN] Erro crítico")
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(scan_and_save, "interval", seconds=30)
+scheduler.start()
+
+logger.info("[SCHEDULER] Ativo (30s)")
+
+# =========================
 # ROTAS
-# -----------------------------------------------------------------------------
+# =========================
 @app.route("/")
 def dashboard():
-    matches = []
-    total_matches = 0
-    total_players = 0
+    matches = Match.query.order_by(Match.collected_at.desc()).limit(100).all()
+    players = Player.query.all()
 
-    if Match:
-        matches = (
-            db.session.query(Match)
-            .order_by(Match.created_at.desc())
-            .limit(50)
-            .all()
-        )
-        total_matches = db.session.query(Match).count()
-
-    if Player:
-        total_players = db.session.query(Player).count()
+    logger.info(f"Status DB → Matches: {len(matches)}")
+    logger.info(f"Status DB → Players: {len(players)}")
 
     return render_template(
         "dashboard.html",
         matches=matches,
-        total_matches=total_matches,
-        total_players=total_players,
-        last_scan=datetime.utcnow(),
+        players=players
     )
-
 
 @app.route("/health")
 def health():
-    return {"status": "ok"}, 200
+    return {"status": "ok"}
 
-
-# -----------------------------------------------------------------------------
-# WORKER EM BACKGROUND (SEGURO COM CONTEXTO)
-# -----------------------------------------------------------------------------
-def background_worker():
-    logging.info("Worker iniciado")
-
-    while True:
-        try:
-            with app.app_context():
-                if Match:
-                    count = db.session.query(Match).count()
-                    logging.info(f"Status DB → Matches: {count}")
-                if Player:
-                    count_p = db.session.query(Player).count()
-                    logging.info(f"Status DB → Players: {count_p}")
-
-        except Exception as e:
-            logging.error(f"Erro no worker: {e}")
-            db.session.rollback()
-
-        time.sleep(60)
-
-
-# -----------------------------------------------------------------------------
-# START
-# -----------------------------------------------------------------------------
-def start_worker():
-    t = threading.Thread(target=background_worker, daemon=True)
-    t.start()
-
-
-start_worker()
-
-# -----------------------------------------------------------------------------
-# GUNICORN ENTRYPOINT
-# -----------------------------------------------------------------------------
+# =========================
+# ENTRYPOINT LOCAL
+# =========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)
