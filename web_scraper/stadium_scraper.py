@@ -2,13 +2,14 @@ import logging
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
 from typing import List, Dict
+import time
 
 logger = logging.getLogger(__name__)
 
 class StadiumScraper:
     """
     Scraper usando Playwright - COLETA PARTIDAS AO VIVO 24/7
-    Coleta todas as partidas em andamento
+    Otimizado para lidar com carregamento lento
     """
 
     BASE_URL = "https://football.esportsbattle.com/en/live"
@@ -20,8 +21,8 @@ class StadiumScraper:
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    def __init__(self, timeout: int = 30):
-        self.timeout = timeout * 1000
+    def __init__(self, timeout: int = 60):
+        self.timeout = timeout * 1000  # 60 segundos
 
     def collect(self) -> List[Dict]:
         logger.info("[SCRAPER] Coleta iniciada - buscando partidas AO VIVO")
@@ -48,12 +49,22 @@ class StadiumScraper:
                 page = context.new_page()
                 
                 logger.info(f"[SCRAPER] Acessando {self.BASE_URL}")
-                page.goto(self.BASE_URL, wait_until="networkidle", timeout=self.timeout)
                 
-                # Aguarda conteúdo carregar
-                page.wait_for_selector(".online-matches-match", timeout=10000)
+                # Carrega a página com timeout maior
+                page.goto(self.BASE_URL, wait_until="domcontentloaded", timeout=self.timeout)
                 
-                # Coleta TODAS as partidas ao vivo
+                # Aguarda um pouco para o JavaScript executar
+                logger.info("[SCRAPER] Aguardando JavaScript carregar...")
+                time.sleep(3)
+                
+                # Tenta aguardar o seletor com timeout maior
+                try:
+                    page.wait_for_selector(".online-matches-match", timeout=20000)
+                    logger.info("[SCRAPER] Cards de partidas encontrados!")
+                except PlaywrightTimeout:
+                    logger.warning("[SCRAPER] Timeout ao aguardar cards, tentando extrair mesmo assim...")
+                
+                # Tenta extrair mesmo se der timeout
                 matches = self._extract_live_matches(page)
                 
                 browser.close()
@@ -66,23 +77,29 @@ class StadiumScraper:
             return []
 
     def _extract_live_matches(self, page) -> List[Dict]:
-        """Extrai TODAS as partidas ao vivo (incluindo 0-0)"""
+        """Extrai TODAS as partidas ao vivo"""
         results = []
         
         try:
-            # Pega todos os cards de partidas
+            # Tenta múltiplas estratégias de seleção
             match_cards = page.query_selector_all(".online-matches-match")
+            
+            if not match_cards:
+                logger.warning("[SCRAPER] Nenhum card encontrado com .online-matches-match")
+                # Tenta seletor alternativo
+                match_cards = page.query_selector_all("div[class*='online-matches']")
+                logger.info(f"[SCRAPER] Tentativa alternativa encontrou {len(match_cards)} elementos")
             
             logger.info(f"[SCRAPER] Analisando {len(match_cards)} partidas ao vivo")
             
-            for card in match_cards:
+            for idx, card in enumerate(match_cards):
                 try:
                     match_data = self._parse_live_match(card)
                     if match_data:
                         results.append(match_data)
-                        logger.info(f"[SCRAPER] ✓ AO VIVO: {match_data['home']} vs {match_data['away']} ({match_data['score']})")
+                        logger.info(f"[SCRAPER] ✓ [{idx+1}] AO VIVO: {match_data['home']} vs {match_data['away']} ({match_data['score']})")
                 except Exception as e:
-                    logger.warning(f"[SCRAPER] Erro ao parsear card: {e}")
+                    logger.warning(f"[SCRAPER] Erro ao parsear card {idx+1}: {e}")
                     continue
             
         except Exception as e:
@@ -93,59 +110,91 @@ class StadiumScraper:
     def _parse_live_match(self, card) -> Dict | None:
         """
         Extrai dados de partidas AO VIVO
-        Coleta TODAS as partidas, incluindo 0-0
+        Mais robusto com tratamento de erros
         """
         
         try:
             # Liga/Torneio
-            league_elem = card.query_selector(".online-matches-console-details .subcaption-2")
-            league = league_elem.inner_text().strip() if league_elem else "Unknown League"
+            league = self._safe_text(card, [
+                ".online-matches-console-details .subcaption-2",
+                ".subcaption-2",
+                "[class*='console-details'] [class*='subcaption']"
+            ])
             
             # Data/Hora
-            date_elem = card.query_selector(".online-matches-console-details .subcaption-1")
-            match_date = date_elem.inner_text().strip() if date_elem else ""
+            match_date = self._safe_text(card, [
+                ".online-matches-console-details .subcaption-1",
+                ".subcaption-1"
+            ])
             
             # Console/Local
-            console_elem = card.query_selector(".online-matches-console-label")
-            console = console_elem.inner_text().strip() if console_elem else ""
+            console = self._safe_text(card, [
+                ".online-matches-console-label",
+                "[class*='console-label']"
+            ])
             
             # Pega os dois times
             stats_items = card.query_selector_all(".online-matches-stats-item")
             
+            if not stats_items:
+                stats_items = card.query_selector_all("[class*='stats-item']")
+            
             if len(stats_items) < 2:
-                logger.debug(f"[SCRAPER] Card sem 2 times, ignorando")
+                logger.debug(f"[SCRAPER] Card sem 2 times ({len(stats_items)} encontrados), ignorando")
                 return None
             
             # Time 1 (Home)
-            home_item = stats_items[0]
-            home_team_elem = home_item.query_selector(".subcaption-1")
-            home_team = home_team_elem.inner_text().strip() if home_team_elem else "Unknown"
+            home_team = self._safe_text(stats_items[0], [
+                ".subcaption-1",
+                "[class*='subcaption']"
+            ])
             
-            home_player_elem = home_item.query_selector(".online-matches-stats-item-link")
-            home_player = home_player_elem.inner_text().strip() if home_player_elem else "Unknown"
+            home_player = self._safe_text(stats_items[0], [
+                ".online-matches-stats-item-link",
+                "a[href*='participants']",
+                ".text-link"
+            ])
             
-            home_score_elem = home_item.query_selector(".online-matches-stats-item-score")
-            home_score = home_score_elem.inner_text().strip() if home_score_elem else "0"
+            home_score = self._safe_text(stats_items[0], [
+                ".online-matches-stats-item-score",
+                "[class*='score']",
+                "span:last-child"
+            ])
             
             # Time 2 (Away)
-            away_item = stats_items[1]
-            away_team_elem = away_item.query_selector(".subcaption-1")
-            away_team = away_team_elem.inner_text().strip() if away_team_elem else "Unknown"
+            away_team = self._safe_text(stats_items[1], [
+                ".subcaption-1",
+                "[class*='subcaption']"
+            ])
             
-            away_player_elem = away_item.query_selector(".online-matches-stats-item-link")
-            away_player = away_player_elem.inner_text().strip() if away_player_elem else "Unknown"
+            away_player = self._safe_text(stats_items[1], [
+                ".online-matches-stats-item-link",
+                "a[href*='participants']",
+                ".text-link"
+            ])
             
-            away_score_elem = away_item.query_selector(".online-matches-stats-item-score")
-            away_score = away_score_elem.inner_text().strip() if away_score_elem else "0"
+            away_score = self._safe_text(stats_items[1], [
+                ".online-matches-stats-item-score",
+                "[class*='score']",
+                "span:last-child"
+            ])
             
-            # Valida apenas se os nomes não são vazios
-            if home_team == "Unknown" or away_team == "Unknown":
+            # Valida dados mínimos
+            if not home_team or not away_team:
                 logger.debug(f"[SCRAPER] Partida com times inválidos, ignorando")
                 return None
             
-            # Retorna a partida AO VIVO (mesmo que seja 0-0)
+            # Limpa os textos
+            home_team = home_team.strip()
+            away_team = away_team.strip()
+            home_player = home_player.strip() if home_player else "Unknown"
+            away_player = away_player.strip() if away_player else "Unknown"
+            home_score = home_score.strip() if home_score else "0"
+            away_score = away_score.strip() if away_score else "0"
+            
+            # Retorna a partida
             return {
-                "league": league,
+                "league": league or "Unknown League",
                 "home": f"{home_team} ({home_player})",
                 "away": f"{away_team} ({away_player})",
                 "score": f"{home_score}-{away_score}",
@@ -157,3 +206,16 @@ class StadiumScraper:
         except Exception as e:
             logger.warning(f"[SCRAPER] Erro ao parsear match: {e}")
             return None
+    
+    def _safe_text(self, element, selectors: list) -> str:
+        """Tenta múltiplos seletores até encontrar um que funcione"""
+        for selector in selectors:
+            try:
+                elem = element.query_selector(selector)
+                if elem:
+                    text = elem.inner_text().strip()
+                    if text:
+                        return text
+            except:
+                continue
+        return ""
