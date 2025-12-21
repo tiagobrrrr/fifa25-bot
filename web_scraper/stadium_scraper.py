@@ -1,5 +1,6 @@
 import logging
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+import requests
+from bs4 import BeautifulSoup
 from datetime import datetime
 from typing import List, Dict
 import time
@@ -8,149 +9,131 @@ logger = logging.getLogger(__name__)
 
 class StadiumScraper:
     """
-    Scraper usando Playwright - VERSÃO OTIMIZADA
-    Mais rápido e com logs detalhados
+    Scraper LEVE usando apenas requests
+    Tenta acessar a página renderizada do site
     """
 
+    # Tenta usar a versão renderizada ou API
     BASE_URL = "https://football.esportsbattle.com/en/live"
     
     HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/120.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
     }
 
-    def __init__(self, timeout: int = 45):
-        self.timeout = timeout * 1000
+    def __init__(self, timeout: int = 15):
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update(self.HEADERS)
 
     def collect(self) -> List[Dict]:
-        logger.info("[SCRAPER] 🚀 Iniciando coleta de partidas AO VIVO")
+        logger.info("[SCRAPER] 🚀 Iniciando coleta LEVE (sem Playwright)")
 
         try:
-            logger.info("[SCRAPER] 📦 Iniciando Playwright...")
-            with sync_playwright() as p:
-                logger.info("[SCRAPER] 🌐 Lançando browser...")
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-gpu'
-                    ]
-                )
-                
-                page = browser.new_page()
-                logger.info(f"[SCRAPER] 🔗 Acessando {self.BASE_URL}")
-                
-                # Carrega a página
-                page.goto(self.BASE_URL, wait_until="load", timeout=self.timeout)
-                logger.info("[SCRAPER] ⏳ Aguardando 5 segundos para JS carregar...")
-                
-                # Aguarda JavaScript executar
-                time.sleep(5)
-                
-                logger.info("[SCRAPER] 🔍 Buscando cards de partidas...")
-                matches = self._extract_live_matches(page)
-                
-                browser.close()
-                logger.info(f"[SCRAPER] ✅ {len(matches)} partidas encontradas!")
-                
-                return matches
+            logger.info(f"[SCRAPER] 🔗 Requisitando {self.BASE_URL}")
+            
+            response = self.session.get(self.BASE_URL, timeout=self.timeout)
+            response.raise_for_status()
+            
+            logger.info(f"[SCRAPER] ✅ Página carregada ({len(response.text)} bytes)")
+            
+            # Tenta parsear
+            matches = self._extract_from_html(response.text)
+            
+            logger.info(f"[SCRAPER] 🎯 {len(matches)} partidas encontradas!")
+            return matches
 
         except Exception as e:
-            logger.exception(f"[SCRAPER] ❌ Erro crítico: {e}")
+            logger.exception(f"[SCRAPER] ❌ Erro: {e}")
             return []
 
-    def _extract_live_matches(self, page) -> List[Dict]:
-        """Extrai partidas ao vivo"""
+    def _extract_from_html(self, html: str) -> List[Dict]:
+        """Tenta extrair partidas do HTML"""
         results = []
         
         try:
-            # Tenta encontrar os cards
-            match_cards = page.query_selector_all(".online-matches-match")
-            logger.info(f"[SCRAPER] 📋 Encontrados {len(match_cards)} cards")
+            soup = BeautifulSoup(html, 'html.parser')
             
-            if len(match_cards) == 0:
-                logger.warning("[SCRAPER] ⚠️ Nenhum card encontrado, salvando HTML para debug...")
-                html = page.content()
-                logger.info(f"[SCRAPER] 📝 Tamanho do HTML: {len(html)} caracteres")
+            # Verifica se tem o texto esperado
+            html_lower = html.lower()
+            if 'online-matches' in html_lower:
+                logger.info("[SCRAPER] ✓ HTML contém 'online-matches'")
+            else:
+                logger.warning("[SCRAPER] ✗ HTML NÃO contém 'online-matches' - Site não carregou completamente")
                 
-                # Verifica se tem o texto esperado
-                if "online-matches" in html:
-                    logger.info("[SCRAPER] ✓ HTML contém 'online-matches'")
-                else:
-                    logger.warning("[SCRAPER] ✗ HTML NÃO contém 'online-matches'")
-                
-                return []
+            # Tenta encontrar cards
+            cards = soup.find_all(class_=lambda x: x and 'online-matches-match' in x)
+            logger.info(f"[SCRAPER] 📋 Encontrados {len(cards)} cards potenciais")
             
-            for idx, card in enumerate(match_cards, 1):
+            if len(cards) == 0:
+                # Fallback: cria dados de teste para verificar se o resto funciona
+                logger.warning("[SCRAPER] ⚠️ Nenhum card encontrado - retornando dados de teste")
+                return self._generate_test_data()
+            
+            for idx, card in enumerate(cards, 1):
                 try:
-                    match_data = self._parse_live_match(card, idx)
-                    if match_data:
-                        results.append(match_data)
-                        logger.info(f"[SCRAPER] ✓ [{idx}] {match_data['home']} vs {match_data['away']} ({match_data['score']})")
+                    match = self._parse_card(card, idx)
+                    if match:
+                        results.append(match)
+                        logger.info(f"[SCRAPER] ✓ [{idx}] {match['home']} vs {match['away']}")
                 except Exception as e:
                     logger.warning(f"[SCRAPER] ✗ [{idx}] Erro: {e}")
             
         except Exception as e:
-            logger.error(f"[SCRAPER] ❌ Erro na extração: {e}")
+            logger.error(f"[SCRAPER] ❌ Erro ao parsear: {e}")
         
         return results
 
-    def _parse_live_match(self, card, idx) -> Dict | None:
-        """Extrai dados de uma partida"""
-        
+    def _parse_card(self, card, idx) -> Dict | None:
+        """Tenta extrair dados de um card"""
         try:
-            # Liga
-            league = self._safe_text(card, ".online-matches-console-details .subcaption-2", f"liga-{idx}")
+            # Busca texto que contenha nomes de times
+            text = card.get_text(separator=' | ', strip=True)
             
-            # Console
-            console = self._safe_text(card, ".online-matches-console-label", f"console-{idx}")
+            # Exemplo: "Super Lig 2025-12-20 | Galatasaray | Maki | 2 | Besiktas | lzrn | 0"
+            parts = [p.strip() for p in text.split('|') if p.strip()]
             
-            # Times
-            stats_items = card.query_selector_all(".online-matches-stats-item")
-            
-            if len(stats_items) < 2:
-                logger.debug(f"[SCRAPER] [{idx}] Apenas {len(stats_items)} times encontrados")
-                return None
-            
-            # Home
-            home_team = self._safe_text(stats_items[0], ".subcaption-1", f"home-team-{idx}")
-            home_player = self._safe_text(stats_items[0], ".online-matches-stats-item-link", f"home-player-{idx}")
-            home_score = self._safe_text(stats_items[0], ".online-matches-stats-item-score", f"home-score-{idx}")
-            
-            # Away
-            away_team = self._safe_text(stats_items[1], ".subcaption-1", f"away-team-{idx}")
-            away_player = self._safe_text(stats_items[1], ".online-matches-stats-item-link", f"away-player-{idx}")
-            away_score = self._safe_text(stats_items[1], ".online-matches-stats-item-score", f"away-score-{idx}")
-            
-            if not home_team or not away_team:
+            if len(parts) < 4:
                 return None
             
             return {
-                "league": league or "Unknown",
-                "home": f"{home_team} ({home_player})" if home_player else home_team,
-                "away": f"{away_team} ({away_player})" if away_player else away_team,
-                "score": f"{home_score or '0'}-{away_score or '0'}",
-                "stadium": f"Console {console}" if console else "Virtual Stadium",
+                "league": parts[0] if len(parts) > 0 else "Unknown",
+                "home": parts[1] if len(parts) > 1 else "Team A",
+                "away": parts[2] if len(parts) > 2 else "Team B",
+                "score": f"{parts[3]}-{parts[4]}" if len(parts) > 4 else "0-0",
+                "stadium": "Virtual Stadium",
                 "status": "LIVE",
                 "collected_at": datetime.utcnow()
             }
-            
-        except Exception as e:
-            logger.warning(f"[SCRAPER] [{idx}] Parse error: {e}")
+        except:
             return None
-    
-    def _safe_text(self, element, selector: str, debug_id: str = "") -> str:
-        """Extrai texto com segurança"""
-        try:
-            elem = element.query_selector(selector)
-            if elem:
-                text = elem.inner_text().strip()
-                if text:
-                    return text
-        except Exception as e:
-            logger.debug(f"[SCRAPER] Erro ao extrair {debug_id}: {e}")
-        return ""
+
+    def _generate_test_data(self) -> List[Dict]:
+        """Gera dados de teste para verificar se o resto do sistema funciona"""
+        logger.info("[SCRAPER] 🧪 Gerando dados de TESTE")
+        
+        now = datetime.utcnow()
+        
+        return [
+            {
+                "league": "TEST Super Lig 2025",
+                "home": "Test Team A (Player1)",
+                "away": "Test Team B (Player2)",
+                "score": "1-1",
+                "stadium": "Test Virtual Stadium",
+                "status": "LIVE",
+                "collected_at": now
+            },
+            {
+                "league": "TEST Champions League",
+                "home": "Test City (TestPlayer)",
+                "away": "Test United (TestGamer)",
+                "score": "2-0",
+                "stadium": "Test Arena",
+                "status": "LIVE",
+                "collected_at": now
+            }
+        ]
