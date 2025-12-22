@@ -28,9 +28,18 @@ DATABASE_URL = os.environ.get(
 # Fix para Render PostgreSQL (postgres:// -> postgresql://)
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    # Adiciona parâmetros SSL para evitar erros de conexão
+    if "?" not in DATABASE_URL:
+        DATABASE_URL += "?sslmode=require"
+    else:
+        DATABASE_URL += "&sslmode=require"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+}
 
 db = SQLAlchemy(app)
 
@@ -47,7 +56,7 @@ class Match(db.Model):
     score = db.Column(db.String(20))
     stadium = db.Column(db.String(120))
     status = db.Column(db.String(50))
-    collected_at = db.Column(db.DateTime, default=lambda: datetime.now(BRAZIL_TZ))
+    collected_at = db.Column(db.DateTime, default=lambda: datetime.now(BRAZIL_TZ).replace(tzinfo=None))
 
 class Player(db.Model):
     __tablename__ = "player"
