@@ -1,287 +1,233 @@
-"""
-Web Scraper para ESportsBattle Football
-Versão com logs detalhados e tratamento de erros
-"""
-
 import requests
 from bs4 import BeautifulSoup
 import logging
 from datetime import datetime
 import time
-import random
 
-# Configurar logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('FIFA25Scraper')
+
 
 class FIFA25Scraper:
-    """Scraper para coletar dados de partidas FIFA 25"""
+    """
+    Scraper para coletar dados de partidas FIFA 25
+    do site football.esportsbattle.com
+    """
     
     def __init__(self):
-        self.base_url = "https://football.esportsbattle.com/en/"
+        self.base_url = "https://football.esportsbattle.com"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
         }
         self.session = requests.Session()
+        self.session.headers.update(self.headers)
         logger.info("✅ FIFA25Scraper inicializado")
     
-    def _get_page(self, url=None, retries=3):
-        """Faz requisição HTTP com retry"""
-        if url is None:
-            url = self.base_url
-        
-        for attempt in range(retries):
-            try:
-                logger.info(f"🌐 Acessando {url} (tentativa {attempt + 1}/{retries})")
-                
-                response = self.session.get(
-                    url, 
-                    headers=self.headers, 
-                    timeout=15
-                )
-                
-                if response.status_code == 200:
-                    logger.info(f"✅ Status 200 - {len(response.content)} bytes recebidos")
-                    return response
-                else:
-                    logger.warning(f"⚠️ Status {response.status_code}")
-                    
-            except requests.exceptions.Timeout:
-                logger.error(f"⏱️ Timeout na tentativa {attempt + 1}")
-            except requests.exceptions.ConnectionError:
-                logger.error(f"🔌 Erro de conexão na tentativa {attempt + 1}")
-            except Exception as e:
-                logger.error(f"❌ Erro inesperado: {type(e).__name__}: {e}")
-            
-            # Aguardar antes de tentar novamente
-            if attempt < retries - 1:
-                wait_time = random.uniform(2, 5)
-                logger.info(f"⏳ Aguardando {wait_time:.1f}s antes de nova tentativa...")
-                time.sleep(wait_time)
-        
-        logger.error(f"❌ Falha após {retries} tentativas")
-        return None
-    
     def get_live_matches(self):
-        """Coleta partidas ao vivo"""
-        logger.info("🎮 Iniciando coleta de partidas AO VIVO...")
-        
-        response = self._get_page()
-        if not response:
-            logger.error("❌ Não foi possível obter a página")
+        """
+        Coleta partidas ao vivo
+        """
+        try:
+            url = f"{self.base_url}/matches/live"
+            logger.info(f"🔍 Buscando partidas ao vivo: {url}")
+            
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            matches = self._parse_matches(soup, status='live')
+            
+            logger.info(f"✅ {len(matches)} partidas ao vivo coletadas")
+            return matches
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ Erro ao buscar partidas ao vivo: {e}")
             return []
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
+        except Exception as e:
+            logger.error(f"❌ Erro ao processar partidas ao vivo: {e}")
+            return []
+    
+    def get_recent_matches(self, limit=20):
+        """
+        Coleta partidas recentes/finalizadas
+        """
+        try:
+            url = f"{self.base_url}/matches/recent"
+            logger.info(f"🔍 Buscando partidas recentes: {url}")
+            
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            matches = self._parse_matches(soup, status='finished')
+            
+            logger.info(f"✅ {len(matches)} partidas recentes coletadas")
+            return matches[:limit]
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ Erro ao buscar partidas recentes: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"❌ Erro ao processar partidas recentes: {e}")
+            return []
+    
+    def _parse_matches(self, soup, status='unknown'):
+        """
+        Faz o parse do HTML e extrai informações das partidas
+        """
         matches = []
         
-        # Buscar container de partidas ao vivo
-        live_section = soup.find('section', class_='online-matches-section')
-        
-        if not live_section:
-            logger.warning("⚠️ Seção de partidas ao vivo não encontrada!")
-            return []
-        
-        # Buscar cada partida individual
-        match_divs = live_section.find_all('div', class_='online-matches-match')
-        logger.info(f"📊 Encontrados {len(match_divs)} containers de partida")
-        
-        for i, match_div in enumerate(match_divs, 1):
-            try:
-                match_data = self._parse_live_match(match_div)
-                if match_data:
-                    matches.append(match_data)
-                    logger.info(f"✅ Partida {i} coletada: {match_data['team1']} vs {match_data['team2']}")
-                else:
-                    logger.warning(f"⚠️ Partida {i} sem dados válidos")
-                    
-            except Exception as e:
-                logger.error(f"❌ Erro ao processar partida {i}: {e}")
-                continue
-        
-        logger.info(f"🎯 Total coletado: {len(matches)} partidas ao vivo")
-        return matches
-    
-    def _parse_live_match(self, match_div):
-        """Extrai dados de uma partida ao vivo"""
         try:
-            # Buscar informações da partida
-            stats_div = match_div.find('div', class_='online-matches-match-stats')
+            # Procurar por containers de partidas
+            # Ajuste os seletores de acordo com a estrutura real do site
+            match_containers = soup.find_all('div', class_=['match-item', 'match-card', 'game-item'])
             
-            if not stats_div:
-                return None
+            if not match_containers:
+                # Tentar seletores alternativos
+                match_containers = soup.find_all('div', {'data-match': True})
             
-            # Buscar os dois times/jogadores
-            stats_items = stats_div.find_all('div', class_='online-matches-stats-item', limit=2)
+            if not match_containers:
+                logger.warning("⚠️  Nenhum container de partida encontrado")
+                return []
             
-            if len(stats_items) < 2:
-                logger.warning("⚠️ Menos de 2 times encontrados")
-                return None
-            
-            # Time 1
-            team1_div = stats_items[0].find('div', class_='subcaption-1')
-            player1_link = stats_items[0].find('a', class_='text-link')
-            score1_span = stats_items[0].find('span', class_='online-matches-stats-item-score')
-            
-            # Time 2
-            team2_div = stats_items[1].find('div', class_='subcaption-1')
-            player2_link = stats_items[1].find('a', class_='text-link')
-            score2_span = stats_items[1].find('span', class_='online-matches-stats-item-score')
-            
-            # Extrair textos
-            team1 = team1_div.get_text(strip=True) if team1_div else "N/A"
-            player1 = player1_link.get_text(strip=True) if player1_link else "N/A"
-            score1 = score1_span.get_text(strip=True) if score1_span else "0"
-            
-            team2 = team2_div.get_text(strip=True) if team2_div else "N/A"
-            player2 = player2_link.get_text(strip=True) if player2_link else "N/A"
-            score2 = score2_span.get_text(strip=True) if score2_span else "0"
-            
-            # Buscar informações adicionais (console, horário)
-            console_div = match_div.find('div', class_='online-matches-console-details')
-            tournament = ""
-            match_time = ""
-            
-            if console_div:
-                tournament_div = console_div.find('div', class_='subcaption-2')
-                time_span = console_div.find('span', class_='subcaption-1')
-                
-                tournament = tournament_div.get_text(strip=True) if tournament_div else ""
-                match_time = time_span.get_text(strip=True) if time_span else ""
-            
-            match_data = {
-                'team1': team1,
-                'team2': team2,
-                'player1': player1,
-                'player2': player2,
-                'score1': int(score1) if score1.isdigit() else 0,
-                'score2': int(score2) if score2.isdigit() else 0,
-                'tournament': tournament,
-                'match_time': match_time,
-                'status': 'live',
-                'scraped_at': datetime.now()
-            }
-            
-            return match_data
+            for container in match_containers:
+                try:
+                    match_data = self._extract_match_data(container, status)
+                    if match_data:
+                        matches.append(match_data)
+                except Exception as e:
+                    logger.debug(f"Erro ao processar container: {e}")
+                    continue
             
         except Exception as e:
-            logger.error(f"❌ Erro no parse: {e}")
-            return None
-    
-    def get_recent_matches(self):
-        """Coleta próximas partidas"""
-        logger.info("📅 Iniciando coleta de PRÓXIMAS partidas...")
+            logger.error(f"❌ Erro no parse de partidas: {e}")
         
-        response = self._get_page()
-        if not response:
-            return []
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
-        matches = []
-        
-        # Buscar lista de próximas partidas
-        recent_section = soup.find('section', class_='nearest-matches')
-        
-        if not recent_section:
-            logger.warning("⚠️ Seção de próximas partidas não encontrada!")
-            return []
-        
-        match_items = recent_section.find_all('li', class_='nearest-matches-list-item')
-        logger.info(f"📊 Encontrados {len(match_items)} itens de próximas partidas")
-        
-        for i, item in enumerate(match_items, 1):
-            try:
-                match_data = self._parse_recent_match(item)
-                if match_data:
-                    matches.append(match_data)
-                    logger.debug(f"✅ Próxima partida {i} coletada")
-                    
-            except Exception as e:
-                logger.error(f"❌ Erro ao processar próxima partida {i}: {e}")
-                continue
-        
-        logger.info(f"🎯 Total coletado: {len(matches)} próximas partidas")
         return matches
     
-    def _parse_recent_match(self, item):
-        """Extrai dados de uma próxima partida"""
+    def _extract_match_data(self, container, status):
+        """
+        Extrai dados de uma partida individual do container HTML
+        """
         try:
-            # Buscar horário
-            date_span = item.find('span', class_='subcaption-1')
-            match_time = date_span.get_text(strip=True) if date_span else ""
+            match_data = {
+                'status': status,
+                'scraped_at': datetime.utcnow()
+            }
             
-            # Buscar confronto
-            teams_div = item.find('div', class_='subcaption-2')
-            confronto = teams_div.get_text(strip=True) if teams_div else ""
+            # Extrair times (ajustar seletores conforme necessário)
+            teams = container.find_all('div', class_=['team-name', 'team'])
+            if len(teams) >= 2:
+                match_data['team1'] = teams[0].get_text(strip=True)
+                match_data['team2'] = teams[1].get_text(strip=True)
             
-            # Tentar separar os times
-            if ' x ' in confronto or ' - ' in confronto:
-                parts = confronto.replace(' x ', '|').replace(' - ', '|').split('|')
-                if len(parts) == 2:
-                    team1_full = parts[0].strip()
-                    team2_full = parts[1].strip()
-                else:
-                    team1_full = confronto
-                    team2_full = ""
+            # Extrair jogadores
+            players = container.find_all('span', class_=['player-name', 'player'])
+            if len(players) >= 2:
+                match_data['player1'] = players[0].get_text(strip=True)
+                match_data['player2'] = players[1].get_text(strip=True)
+            
+            # Extrair placar - ✅ AGORA SALVA COMO STRING ÚNICA
+            score_elem = container.find('div', class_=['score', 'match-score', 'result'])
+            if score_elem:
+                score_text = score_elem.get_text(strip=True)
+                match_data['score'] = score_text  # Ex: "2-1", "3-0"
             else:
-                team1_full = confronto
-                team2_full = ""
+                # Tentar extrair scores individuais e combinar
+                scores = container.find_all('span', class_=['score-value', 'goals'])
+                if len(scores) >= 2:
+                    score1 = scores[0].get_text(strip=True)
+                    score2 = scores[1].get_text(strip=True)
+                    match_data['score'] = f"{score1}-{score2}"
+                else:
+                    match_data['score'] = "0-0"
             
-            match_data = {
-                'team1': team1_full,
-                'team2': team2_full,
-                'match_time': match_time,
-                'status': 'scheduled',
-                'scraped_at': datetime.now()
-            }
+            # Extrair torneio
+            tournament = container.find('div', class_=['tournament', 'league', 'competition'])
+            if tournament:
+                match_data['tournament'] = tournament.get_text(strip=True)
+            else:
+                match_data['tournament'] = 'FIFA 25'
+            
+            # Extrair horário
+            time_elem = container.find('time', class_=['match-time', 'time'])
+            if time_elem:
+                match_data['match_time'] = time_elem.get_text(strip=True)
+            else:
+                match_data['match_time'] = datetime.now().strftime('%H:%M')
+            
+            # Extrair localização (se disponível)
+            location = container.find('span', class_=['location', 'venue'])
+            if location:
+                match_data['location'] = location.get_text(strip=True)
+            else:
+                match_data['location'] = 'Online'
+            
+            # Validar dados mínimos
+            if not all(k in match_data for k in ['team1', 'team2']):
+                return None
             
             return match_data
             
         except Exception as e:
-            logger.error(f"❌ Erro no parse de próxima partida: {e}")
+            logger.debug(f"Erro ao extrair dados da partida: {e}")
             return None
     
-    def get_tournament_results(self, tournament_url=None):
-        """Coleta resultados de um torneio específico"""
-        logger.info("🏆 Iniciando coleta de resultados do torneio...")
-        
-        # Implementar conforme necessário
-        return []
+    def get_match_details(self, match_id):
+        """
+        Obtém detalhes completos de uma partida específica
+        """
+        try:
+            url = f"{self.base_url}/match/{match_id}"
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            # Implementar parse de detalhes se necessário
+            
+            return {}
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar detalhes da partida {match_id}: {e}")
+            return {}
+    
+    def test_connection(self):
+        """
+        Testa a conexão com o site
+        """
+        try:
+            response = self.session.get(self.base_url, timeout=10)
+            response.raise_for_status()
+            logger.info(f"✅ Conexão OK - Status: {response.status_code}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Erro de conexão: {e}")
+            return False
 
-# Função auxiliar para testes rápidos
-def quick_test():
-    """Teste rápido do scraper"""
+
+# Teste rápido
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    
     scraper = FIFA25Scraper()
     
-    print("\n" + "="*60)
-    print("🎮 TESTE RÁPIDO DO SCRAPER")
-    print("="*60)
-    
-    # Testar partidas ao vivo
-    print("\n📺 PARTIDAS AO VIVO:")
-    live = scraper.get_live_matches()
-    for i, match in enumerate(live, 1):
-        print(f"\n{i}. {match['team1']} ({match['player1']}) {match['score1']} x {match['score2']} {match['team2']} ({match['player2']})")
-        print(f"   🏆 {match['tournament']}")
-        print(f"   🕐 {match['match_time']}")
-    
-    # Testar próximas partidas
-    print("\n\n📅 PRÓXIMAS PARTIDAS:")
-    recent = scraper.get_recent_matches()
-    for i, match in enumerate(recent[:5], 1):
-        print(f"\n{i}. {match['team1']} vs {match['team2']}")
-        print(f"   🕐 {match['match_time']}")
-    
-    print("\n" + "="*60)
-    print(f"✅ Teste concluído: {len(live)} ao vivo, {len(recent)} agendadas")
-    print("="*60)
-
-if __name__ == "__main__":
-    quick_test()
+    print("\n🔍 Testando conexão...")
+    if scraper.test_connection():
+        print("✅ Conexão OK\n")
+        
+        print("🔍 Buscando partidas ao vivo...")
+        live = scraper.get_live_matches()
+        print(f"✅ {len(live)} partidas ao vivo encontradas\n")
+        
+        print("🔍 Buscando partidas recentes...")
+        recent = scraper.get_recent_matches()
+        print(f"✅ {len(recent)} partidas recentes encontradas\n")
+        
+        if live or recent:
+            print("\n📋 Exemplo de partida:")
+            example = live[0] if live else recent[0]
+            for key, value in example.items():
+                print(f"  {key}: {value}")
+    else:
+        print("❌ Falha na conexão")
