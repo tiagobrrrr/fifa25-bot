@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
+# exit on error
+set -o errexit
 
-apt-get update
-apt-get install -y chromium-browser chromium-chromedriver
+# Instalar dependências Python
+pip install --upgrade pip
+pip install -r requirements.txt
 
-echo "Chromium instalado em:"
-which chromium-browser
+# Inicializar banco de dados
+python -c "from models import init_db; init_db()"
 
-echo "Chromedriver instalado em:"
-which chromedriver
+echo "✅ Build concluído com sucesso!"
