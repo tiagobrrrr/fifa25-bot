@@ -15,7 +15,7 @@ class Match(Base):
     team2 = Column(String(100))
     player1 = Column(String(100))
     player2 = Column(String(100))
-    score = Column(String(20))  # ✅ CORRIGIDO - agora é apenas 'score' (ex: "2-1")
+    score = Column(String(20))  # ✅ CORRIGIDO - formato "2-1"
     tournament = Column(String(200))
     match_time = Column(String(50))
     location = Column(String(100))
@@ -86,14 +86,41 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///fifa25_bot.db')
 if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-# Criar engine e sessão
-engine = create_engine(DATABASE_URL, echo=False)
+# ✅ ADICIONAR: Configuração SSL para PostgreSQL no Render
+connect_args = {}
+if 'postgresql://' in DATABASE_URL and 'render.com' in DATABASE_URL:
+    # Adiciona sslmode=require na URL
+    if '?' in DATABASE_URL:
+        DATABASE_URL += '&sslmode=require'
+    else:
+        DATABASE_URL += '?sslmode=require'
+    
+    # Configuração adicional de SSL
+    connect_args = {
+        'sslmode': 'require'
+    }
+
+# Criar engine com configurações SSL
+engine = create_engine(
+    DATABASE_URL, 
+    echo=False,
+    connect_args=connect_args,
+    pool_pre_ping=True,  # Verifica conexões antes de usar
+    pool_recycle=3600    # Recicla conexões a cada hora
+)
+
 Session = sessionmaker(bind=engine)
 
 def init_db():
     """Inicializa o banco de dados criando todas as tabelas"""
-    Base.metadata.create_all(engine)
-    print("✅ Banco de dados inicializado com sucesso!")
+    try:
+        Base.metadata.create_all(engine)
+        print("✅ Banco de dados inicializado com sucesso!")
+        return True
+    except Exception as e:
+        print(f"⚠️  Aviso ao inicializar banco: {e}")
+        print("ℹ️  O banco será inicializado quando a aplicação iniciar")
+        return False
 
 def get_session():
     """Retorna uma nova sessão do banco de dados"""

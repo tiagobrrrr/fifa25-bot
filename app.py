@@ -8,7 +8,7 @@ from sqlalchemy import func, and_, desc
 # ✅ IMPORT CORRIGIDO
 from web_scraper import FIFA25Scraper
 
-from models import Match, Player, init_db, get_session
+from models import Match, Player, get_session
 from data_analyzer import DataAnalyzer
 
 # Configuração de logging
@@ -26,18 +26,42 @@ app.secret_key = os.getenv('SESSION_SECRET', 'fifa25-secret-key-change-me')
 last_scrape_time = None
 scrape_count = 0
 scraper_enabled = os.getenv('RUN_SCRAPER', 'true').lower() == 'true'
-
-# Inicializar banco de dados
-init_db()
+db_initialized = False
 
 # Inicializar scraper
 scraper = FIFA25Scraper()
 analyzer = DataAnalyzer()
 
 
+def init_database():
+    """Inicializa o banco de dados com retry"""
+    global db_initialized
+    
+    if db_initialized:
+        return True
+    
+    try:
+        from models import init_db
+        if init_db():
+            db_initialized = True
+            logger.info("✅ Banco de dados inicializado com sucesso!")
+            return True
+    except Exception as e:
+        logger.warning(f"⚠️  Banco não disponível ainda: {e}")
+        logger.info("ℹ️  Tentaremos novamente na próxima requisição")
+    
+    return False
+
+
 def scrape_job():
     """Job de coleta de dados executado periodicamente"""
     global last_scrape_time, scrape_count
+    
+    # Garante que o banco está inicializado
+    if not db_initialized:
+        if not init_database():
+            logger.warning("⚠️  Pulando coleta - banco não disponível")
+            return
     
     scrape_count += 1
     logger.info("=" * 70)
@@ -169,6 +193,11 @@ def update_player_stats(session, match_data):
 @app.route('/')
 def dashboard():
     """Dashboard principal"""
+    
+    # Tenta inicializar banco se ainda não foi
+    if not db_initialized:
+        init_database()
+    
     try:
         session = get_session()
         
@@ -199,7 +228,15 @@ def dashboard():
     
     except Exception as e:
         logger.error(f"Erro no dashboard: {e}")
-        return f"Erro ao carregar dashboard: {e}", 500
+        # Retorna dashboard vazio se banco não estiver disponível
+        return render_template('dashboard.html',
+                             total_matches=0,
+                             total_players=0,
+                             recent_matches=[],
+                             top_players=[],
+                             last_scrape=last_scrape_time,
+                             scrape_count=scrape_count,
+                             scraper_enabled=scraper_enabled)
 
 
 @app.route('/api/matches')
@@ -254,7 +291,8 @@ def api_stats():
             'total_players': session.query(func.count(Player.id)).scalar() or 0,
             'last_scrape': last_scrape_time.isoformat() if last_scrape_time else None,
             'scrape_count': scrape_count,
-            'scraper_enabled': scraper_enabled
+            'scraper_enabled': scraper_enabled,
+            'db_initialized': db_initialized
         }
         
         session.close()
@@ -263,6 +301,16 @@ def api_stats():
     except Exception as e:
         logger.error(f"Erro na API de stats: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/health')
+def health():
+    """Health check para o Render"""
+    return jsonify({
+        'status': 'ok',
+        'db_initialized': db_initialized,
+        'scraper_enabled': scraper_enabled
+    })
 
 
 # Inicializar scheduler
@@ -281,6 +329,10 @@ if scraper_enabled:
     logger.info(f"✅ Scheduler iniciado - Intervalo: {interval}s")
 else:
     logger.info("⚠️  Scraper desabilitado via variável RUN_SCRAPER")
+
+
+# Tentar inicializar banco ao startar (mas não falha se der erro)
+init_database()
 
 
 if __name__ == '__main__':
