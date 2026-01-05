@@ -86,19 +86,21 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///fifa25_bot.db')
 if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-# ✅ ADICIONAR: Configuração SSL para PostgreSQL no Render
+# ✅ Configuração SSL para PostgreSQL
 connect_args = {}
-if 'postgresql://' in DATABASE_URL and 'render.com' in DATABASE_URL:
-    # Adiciona sslmode=require na URL
-    if '?' in DATABASE_URL:
-        DATABASE_URL += '&sslmode=require'
+if 'postgresql://' in DATABASE_URL:
+    # Para Render.com, usa prefer ao invés de require
+    if 'render.com' in DATABASE_URL or 'render.internal' in DATABASE_URL:
+        connect_args = {
+            'connect_timeout': 10,
+            'options': '-c statement_timeout=30000'
+        }
     else:
-        DATABASE_URL += '?sslmode=require'
-    
-    # Configuração adicional de SSL
-    connect_args = {
-        'sslmode': 'require'
-    }
+        # Para outros hosts
+        connect_args = {
+            'sslmode': 'prefer',
+            'connect_timeout': 10
+        }
 
 # Criar engine com configurações SSL
 engine = create_engine(
