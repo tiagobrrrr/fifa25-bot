@@ -8,7 +8,7 @@ from sqlalchemy import func, and_, desc
 # ✅ IMPORT CORRIGIDO
 from web_scraper import FIFA25Scraper
 
-from models import Match, Player, get_session
+from models import Match, Player, init_db, get_session
 from data_analyzer import DataAnalyzer
 
 # Configuração de logging
@@ -147,7 +147,7 @@ def update_player_stats(session, match_data):
         except:
             return
         
-        # Atualizar Player 1
+        # ✅ ATUALIZAR PLAYER 1 - CORRIGIDO
         player1 = session.query(Player).filter_by(name=player1_name).first()
         if not player1:
             player1 = Player(name=player1_name)
@@ -167,22 +167,23 @@ def update_player_stats(session, match_data):
         
         player1.last_updated = datetime.utcnow()
         
-        # Atualizar Player 2
+        # ✅ ATUALIZAR PLAYER 2 - CORRIGIDO
         player2 = session.query(Player).filter_by(name=player2_name).first()
         if not player2:
             player2 = Player(name=player2_name)
             session.add(player2)
         
-        player2.total_matches += 1
-        player2.goals_scored += score2
-        player2.goals_conceded += score1
+        # Garantir que não seja None
+        player2.total_matches = (player2.total_matches or 0) + 1
+        player2.goals_scored = (player2.goals_scored or 0) + score2
+        player2.goals_conceded = (player2.goals_conceded or 0) + score1
         
         if score2 > score1:
-            player2.wins += 1
+            player2.wins = (player2.wins or 0) + 1
         elif score2 < score1:
-            player2.losses += 1
+            player2.losses = (player2.losses or 0) + 1
         else:
-            player2.draws += 1
+            player2.draws = (player2.draws or 0) + 1
         
         player2.last_updated = datetime.utcnow()
         
