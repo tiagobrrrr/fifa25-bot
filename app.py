@@ -153,16 +153,17 @@ def update_player_stats(session, match_data):
             player1 = Player(name=player1_name)
             session.add(player1)
         
-        player1.total_matches += 1
-        player1.goals_scored += score1
-        player1.goals_conceded += score2
+        # Garantir que não seja None
+        player1.total_matches = (player1.total_matches or 0) + 1
+        player1.goals_scored = (player1.goals_scored or 0) + score1
+        player1.goals_conceded = (player1.goals_conceded or 0) + score2
         
         if score1 > score2:
-            player1.wins += 1
+            player1.wins = (player1.wins or 0) + 1
         elif score1 < score2:
-            player1.losses += 1
+            player1.losses = (player1.losses or 0) + 1
         else:
-            player1.draws += 1
+            player1.draws = (player1.draws or 0) + 1
         
         player1.last_updated = datetime.utcnow()
         
