@@ -246,8 +246,22 @@ class FIFA25Scraper:
                 gf2 = details2.get('GF', 0)
                 match_data['score'] = f"{gf1}-{gf2}"
             
-            match_data['match_time'] = item.get('time') or datetime.now().strftime('%H:%M')
-            match_data['location'] = item.get('location', 'Online')
+            # Horário
+            match_data['match_time'] = item.get('time') or item.get('date') or datetime.now().strftime('%H:%M')
+            if match_data['match_time'] and len(str(match_data['match_time'])) > 10:
+                # Se é data completa, extrair só hora
+                try:
+                    dt = datetime.fromisoformat(str(match_data['match_time']).replace('Z', '+00:00'))
+                    match_data['match_time'] = dt.strftime('%H:%M')
+                except:
+                    match_data['match_time'] = datetime.now().strftime('%H:%M')
+            
+            # ✅ CORRIGIDO: Location como STRING
+            location_data = item.get('location', 'Online')
+            if isinstance(location_data, dict):
+                match_data['location'] = location_data.get('token') or location_data.get('token_international', 'Online')
+            else:
+                match_data['location'] = str(location_data) if location_data else 'Online'
             
             if 'team1' in match_data and 'team2' in match_data:
                 return match_data
@@ -268,7 +282,13 @@ class FIFA25Scraper:
                 'status': 'live'
             }
             
-            match_data['location'] = stream.get('name') or stream.get('location', 'Online')
+            # ✅ CORRIGIDO: Location como STRING
+            location_data = stream.get('name') or stream.get('location', 'Online')
+            if isinstance(location_data, dict):
+                match_data['location'] = location_data.get('token') or location_data.get('token_international', 'Online')
+            else:
+                match_data['location'] = str(location_data) if location_data else 'Online'
+            
             match_data['tournament'] = stream.get('tournament', 'FIFA 25')
             
             if 'match' in stream:
@@ -291,18 +311,58 @@ class FIFA25Scraper:
         """
         result = {}
         
-        result['team1'] = data.get('team1') or data.get('homeTeam') or 'Time 1'
-        result['team2'] = data.get('team2') or data.get('awayTeam') or 'Time 2'
-        result['player1'] = data.get('player1') or data.get('homePlayer') or 'Jogador 1'
-        result['player2'] = data.get('player2') or data.get('awayPlayer') or 'Jogador 2'
+        # ✅ CORRIGIDO: Extrair de participant1/participant2
+        p1 = data.get('participant1', {})
+        p2 = data.get('participant2', {})
         
+        if p1:
+            result['player1'] = p1.get('nickname') or p1.get('name', 'Jogador 1')
+            team1_data = p1.get('team', {})
+            if isinstance(team1_data, dict):
+                result['team1'] = team1_data.get('token') or team1_data.get('token_international') or team1_data.get('name', 'Time 1')
+            else:
+                result['team1'] = 'Time 1'
+        else:
+            result['team1'] = data.get('team1') or data.get('homeTeam', 'Time 1')
+            result['player1'] = data.get('player1') or data.get('homePlayer', 'Jogador 1')
+        
+        if p2:
+            result['player2'] = p2.get('nickname') or p2.get('name', 'Jogador 2')
+            team2_data = p2.get('team', {})
+            if isinstance(team2_data, dict):
+                result['team2'] = team2_data.get('token') or team2_data.get('token_international') or team2_data.get('name', 'Time 2')
+            else:
+                result['team2'] = 'Time 2'
+        else:
+            result['team2'] = data.get('team2') or data.get('awayTeam', 'Time 2')
+            result['player2'] = data.get('player2') or data.get('awayPlayer', 'Jogador 2')
+        
+        # Placar
         score1 = data.get('score1', data.get('homeScore', 0))
         score2 = data.get('score2', data.get('awayScore', 0))
         result['score'] = f"{score1}-{score2}"
         
+        # Torneio
         result['tournament'] = data.get('tournament', 'FIFA 25')
-        result['match_time'] = data.get('time', datetime.now().strftime('%H:%M'))
-        result['location'] = data.get('location', 'Online')
+        
+        # Horário
+        match_time = data.get('time') or data.get('date') or datetime.now().strftime('%H:%M')
+        if match_time and len(str(match_time)) > 10:
+            # Se é data completa, extrair só hora
+            try:
+                dt = datetime.fromisoformat(str(match_time).replace('Z', '+00:00'))
+                result['match_time'] = dt.strftime('%H:%M')
+            except:
+                result['match_time'] = datetime.now().strftime('%H:%M')
+        else:
+            result['match_time'] = str(match_time) if match_time else datetime.now().strftime('%H:%M')
+        
+        # ✅ CORRIGIDO: Location como STRING
+        location_data = data.get('location', 'Online')
+        if isinstance(location_data, dict):
+            result['location'] = location_data.get('token') or location_data.get('token_international') or location_data.get('name', 'Online')
+        else:
+            result['location'] = str(location_data) if location_data else 'Online'
         
         return result
     
