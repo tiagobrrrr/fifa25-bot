@@ -1,129 +1,90 @@
-from sqlalchemy import Column, Integer, String, DateTime, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-import os
 
-Base = declarative_base()
+db = SQLAlchemy()
 
-class Match(Base):
-    """Modelo para partidas FIFA 25"""
+class Match(db.Model):
     __tablename__ = 'matches'
     
-    id = Column(Integer, primary_key=True)
-    team1 = Column(String(100))
-    team2 = Column(String(100))
-    player1 = Column(String(100))
-    player2 = Column(String(100))
-    score = Column(String(20))  # ✅ CORRIGIDO - formato "2-1"
-    tournament = Column(String(200))
-    match_time = Column(String(50))
-    location = Column(String(100))
-    status = Column(String(50))
-    scraped_at = Column(DateTime, default=datetime.utcnow)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id = db.Column(db.Integer, primary_key=True)
+    match_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    
+    # Jogadores
+    player1_name = db.Column(db.String(100))
+    player2_name = db.Column(db.String(100))
+    player1_team = db.Column(db.String(100))
+    player2_team = db.Column(db.String(100))
+    
+    # Placar
+    score1 = db.Column(db.Integer)
+    score2 = db.Column(db.Integer)
+    
+    # Informações da partida
+    date = db.Column(db.DateTime, index=True)
+    status = db.Column(db.String(20), default='scheduled', index=True)  # scheduled, live, finished
+    location = db.Column(db.String(100))
+    console = db.Column(db.String(50))
+    tournament = db.Column(db.String(100))
+    round_info = db.Column(db.String(50))
+    
+    # Metadados
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):
-        return f"<Match {self.team1} vs {self.team2} ({self.score})>"
+        return f'<Match {self.player1_name} vs {self.player2_name}>'
     
     def to_dict(self):
-        """Converte o objeto para dicionário"""
         return {
             'id': self.id,
-            'team1': self.team1,
-            'team2': self.team2,
-            'player1': self.player1,
-            'player2': self.player2,
-            'score': self.score,
-            'tournament': self.tournament,
-            'match_time': self.match_time,
-            'location': self.location,
+            'match_id': self.match_id,
+            'player1_name': self.player1_name,
+            'player2_name': self.player2_name,
+            'player1_team': self.player1_team,
+            'player2_team': self.player2_team,
+            'score1': self.score1,
+            'score2': self.score2,
+            'date': self.date.isoformat() if self.date else None,
             'status': self.status,
-            'scraped_at': self.scraped_at.isoformat() if self.scraped_at else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'location': self.location,
+            'console': self.console,
+            'tournament': self.tournament,
+            'round': self.round_info,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
 
-class Player(Base):
-    """Modelo para estatísticas de jogadores"""
+class Player(db.Model):
     __tablename__ = 'players'
     
-    id = Column(Integer, primary_key=True)
-    name = Column(String(100), unique=True)
-    total_matches = Column(Integer, default=0)
-    wins = Column(Integer, default=0)
-    losses = Column(Integer, default=0)
-    draws = Column(Integer, default=0)
-    goals_scored = Column(Integer, default=0)
-    goals_conceded = Column(Integer, default=0)
-    last_updated = Column(DateTime, default=datetime.utcnow)
+    id = db.Column(db.Integer, primary_key=True)
+    player_name = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    
+    # Estatísticas
+    total_matches = db.Column(db.Integer, default=0)
+    wins = db.Column(db.Integer, default=0)
+    losses = db.Column(db.Integer, default=0)
+    draws = db.Column(db.Integer, default=0)
+    
+    # Metadados
+    first_seen = db.Column(db.DateTime, default=datetime.utcnow)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
     
     def __repr__(self):
-        return f"<Player {self.name} - {self.total_matches} partidas>"
+        return f'<Player {self.player_name}>'
     
     def to_dict(self):
-        """Converte o objeto para dicionário"""
-        win_rate = (self.wins / self.total_matches * 100) if self.total_matches > 0 else 0
         return {
             'id': self.id,
-            'name': self.name,
-            'total_matches': self.total_matches,
-            'wins': self.wins,
-            'losses': self.losses,
-            'draws': self.draws,
-            'goals_scored': self.goals_scored,
-            'goals_conceded': self.goals_conceded,
-            'goal_difference': self.goals_scored - self.goals_conceded,
-            'win_rate': round(win_rate, 2),
-            'last_updated': self.last_updated.isoformat() if self.last_updated else None
+            'name': self.player_name,
+            'stats': {
+                'matches': self.total_matches,
+                'wins': self.wins,
+                'losses': self.losses,
+                'draws': self.draws,
+                'win_rate': round(self.wins / self.total_matches * 100, 1) if self.total_matches > 0 else 0
+            },
+            'first_seen': self.first_seen.isoformat() if self.first_seen else None,
+            'last_seen': self.last_seen.isoformat() if self.last_seen else None
         }
-
-
-# Configuração do banco de dados
-DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///fifa25_bot.db')
-
-# Fix para Render/Heroku (postgres:// -> postgresql://)
-if DATABASE_URL.startswith('postgres://'):
-    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-
-# ✅ Configuração SSL para PostgreSQL
-connect_args = {}
-if 'postgresql://' in DATABASE_URL:
-    # Para Render.com, usa prefer ao invés de require
-    if 'render.com' in DATABASE_URL or 'render.internal' in DATABASE_URL:
-        connect_args = {
-            'connect_timeout': 10,
-            'options': '-c statement_timeout=30000'
-        }
-    else:
-        # Para outros hosts
-        connect_args = {
-            'sslmode': 'prefer',
-            'connect_timeout': 10
-        }
-
-# Criar engine com configurações SSL
-engine = create_engine(
-    DATABASE_URL, 
-    echo=False,
-    connect_args=connect_args,
-    pool_pre_ping=True,  # Verifica conexões antes de usar
-    pool_recycle=3600    # Recicla conexões a cada hora
-)
-
-Session = sessionmaker(bind=engine)
-
-def init_db():
-    """Inicializa o banco de dados criando todas as tabelas"""
-    try:
-        Base.metadata.create_all(engine)
-        print("✅ Banco de dados inicializado com sucesso!")
-        return True
-    except Exception as e:
-        print(f"⚠️  Aviso ao inicializar banco: {e}")
-        print("ℹ️  O banco será inicializado quando a aplicação iniciar")
-        return False
-
-def get_session():
-    """Retorna uma nova sessão do banco de dados"""
-    return Session()

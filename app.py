@@ -1,342 +1,507 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_file
+from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
-import logging
 import os
-from sqlalchemy import func, and_, desc
+import logging
+from dotenv import load_dotenv
 
-# ✅ IMPORT CORRIGIDO
-from web_scraper import FIFA25Scraper
-
-from models import Match, Player, init_db, get_session
-from data_analyzer import DataAnalyzer
+# Carrega variáveis de ambiente
+load_dotenv()
 
 # Configuração de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('app')
+logger = logging.getLogger(__name__)
 
-# Inicializar Flask
+# Inicializa Flask
 app = Flask(__name__)
-app.secret_key = os.getenv('SESSION_SECRET', 'fifa25-secret-key-change-me')
+app.config['SECRET_KEY'] = os.getenv('SESSION_SECRET', 'dev-secret-key-change-this')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///fifa25.db')
+if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
+    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 300,
+}
+
+# Inicializa banco de dados
+db = SQLAlchemy(app)
+
+# Importa models
+from models import Match, Player, db as models_db
+models_db.init_app(app)
+
+# Importa scraper
+from web_scraper.fifa25_scraper import FIFA25Scraper
 
 # Variáveis globais
-last_scrape_time = None
-scrape_count = 0
-scraper_enabled = os.getenv('RUN_SCRAPER', 'true').lower() == 'true'
-db_initialized = False
+last_scan_time = None
+scraper_status = "Aguardando primeira execução"
+scheduler = None
 
-# Inicializar scraper
-scraper = FIFA25Scraper()
-analyzer = DataAnalyzer()
+# ============================================
+# FUNÇÕES DE COLETA E SALVAMENTO - MELHORADAS
+# ============================================
 
-
-def init_database():
-    """Inicializa o banco de dados com retry"""
-    global db_initialized
-    
-    if db_initialized:
-        return True
+def collect_and_save_matches():
+    """Coleta e salva partidas com sistema de atualização inteligente"""
+    global last_scan_time, scraper_status
     
     try:
-        from models import init_db
-        if init_db():
-            db_initialized = True
-            logger.info("✅ Banco de dados inicializado com sucesso!")
-            return True
-    except Exception as e:
-        logger.warning(f"⚠️  Banco não disponível ainda: {e}")
-        logger.info("ℹ️  Tentaremos novamente na próxima requisição")
-    
-    return False
-
-
-def scrape_job():
-    """Job de coleta de dados executado periodicamente"""
-    global last_scrape_time, scrape_count
-    
-    # Garante que o banco está inicializado
-    if not db_initialized:
-        if not init_database():
-            logger.warning("⚠️  Pulando coleta - banco não disponível")
-            return
-    
-    scrape_count += 1
-    logger.info("=" * 70)
-    logger.info(f"🔄 COLETA #{scrape_count}")
-    logger.info(f"🕐 {datetime.now()}")
-    logger.info("=" * 70)
-    
-    try:
-        # Coletar partidas ao vivo
+        logger.info("=" * 80)
+        logger.info("🚀 INICIANDO COLETA DE PARTIDAS FIFA25")
+        logger.info("=" * 80)
+        
+        scraper_status = "Coletando..."
+        scraper = FIFA25Scraper()
+        
+        # Estatísticas
+        before_count = Match.query.count()
+        logger.info(f"📊 Partidas no banco ANTES da coleta: {before_count}")
+        
+        # Coleta partidas
         live_matches = scraper.get_live_matches()
         recent_matches = scraper.get_recent_matches()
         
-        all_matches = live_matches + recent_matches
+        logger.info(f"🔍 Partidas encontradas pelo scraper:")
+        logger.info(f"   └─ Ao vivo: {len(live_matches)}")
+        logger.info(f"   └─ Recentes: {len(recent_matches)}")
         
-        if not all_matches:
-            logger.info("⚠️  Nenhuma partida encontrada")
-            return
+        # Contadores
+        new_count = 0
+        updated_count = 0
+        duplicate_count = 0
+        error_count = 0
         
-        # Salvar no banco de dados
-        session = get_session()
-        new_matches = 0
+        # Processa partidas ao vivo
+        logger.info("🔴 Processando partidas AO VIVO...")
+        for match_data in live_matches:
+            result = process_match(match_data, is_live=True)
+            if result == 'new':
+                new_count += 1
+            elif result == 'updated':
+                updated_count += 1
+            elif result == 'duplicate':
+                duplicate_count += 1
+            else:
+                error_count += 1
         
-        for match_data in all_matches:
-            try:
-                # Verificar se a partida já existe
-                existing = session.query(Match).filter(
-                    and_(
-                        Match.team1 == match_data.get('team1'),
-                        Match.team2 == match_data.get('team2'),
-                        Match.player1 == match_data.get('player1'),
-                        Match.player2 == match_data.get('player2'),
-                        Match.match_time == match_data.get('match_time')
-                    )
-                ).first()
-                
-                if not existing:
-                    match = Match(
-                        team1=match_data.get('team1'),
-                        team2=match_data.get('team2'),
-                        player1=match_data.get('player1'),
-                        player2=match_data.get('player2'),
-                        score=match_data.get('score', '0-0'),  # ✅ CORRIGIDO
-                        tournament=match_data.get('tournament'),
-                        match_time=match_data.get('match_time'),
-                        location=match_data.get('location'),
-                        status=match_data.get('status', 'unknown')
-                    )
-                    session.add(match)
-                    new_matches += 1
-                    
-                    # Atualizar estatísticas dos jogadores
-                    update_player_stats(session, match_data)
-            
-            except Exception as e:
-                logger.error(f"❌ Erro ao salvar partida: {e}")
-                continue
+        # Processa partidas recentes
+        logger.info("📋 Processando partidas RECENTES...")
+        for match_data in recent_matches:
+            result = process_match(match_data, is_live=False)
+            if result == 'new':
+                new_count += 1
+            elif result == 'updated':
+                updated_count += 1
+            elif result == 'duplicate':
+                duplicate_count += 1
+            else:
+                error_count += 1
         
-        session.commit()
-        session.close()
+        # Commit de todas as mudanças
+        db.session.commit()
         
-        last_scrape_time = datetime.now()
-        logger.info(f"✅ Coleta finalizada: {new_matches} novas partidas")
+        # Estatísticas finais
+        after_count = Match.query.count()
+        last_scan_time = datetime.utcnow()
+        scraper_status = "Ativo"
+        
+        logger.info("=" * 80)
+        logger.info("✅ COLETA FINALIZADA COM SUCESSO!")
+        logger.info(f"📊 ESTATÍSTICAS:")
+        logger.info(f"   ├─ Partidas no banco ANTES: {before_count}")
+        logger.info(f"   ├─ Partidas no banco DEPOIS: {after_count}")
+        logger.info(f"   ├─ Novas partidas salvas: {new_count}")
+        logger.info(f"   ├─ Partidas atualizadas: {updated_count}")
+        logger.info(f"   ├─ Duplicatas ignoradas: {duplicate_count}")
+        logger.info(f"   └─ Erros encontrados: {error_count}")
+        logger.info("=" * 80)
+        
+        return {
+            'new': new_count,
+            'updated': updated_count,
+            'duplicates': duplicate_count,
+            'errors': error_count
+        }
         
     except Exception as e:
-        logger.error(f"❌ Erro na coleta: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+        db.session.rollback()
+        scraper_status = f"Erro: {str(e)}"
+        logger.error(f"❌ ERRO CRÍTICO na coleta: {e}", exc_info=True)
+        return None
 
 
-def update_player_stats(session, match_data):
-    """Atualiza estatísticas dos jogadores"""
+def process_match(match_data, is_live=False):
+    """
+    Processa uma partida individualmente com lógica inteligente
+    Returns: 'new', 'updated', 'duplicate', ou 'error'
+    """
     try:
-        player1_name = match_data.get('player1')
-        player2_name = match_data.get('player2')
-        score = match_data.get('score', '0-0')
+        match_id = match_data.get('match_id')
         
-        if not player1_name or not player2_name or not score:
-            return
+        if not match_id:
+            logger.warning("⚠️  Match sem ID, ignorando...")
+            return 'error'
         
-        # Parsear placar
-        try:
-            score1, score2 = map(int, score.split('-'))
-        except:
-            return
+        # Busca partida existente
+        existing = Match.query.filter_by(match_id=match_id).first()
         
-        # ✅ ATUALIZAR PLAYER 1 - CORRIGIDO
-        player1 = session.query(Player).filter_by(name=player1_name).first()
-        if not player1:
-            player1 = Player(name=player1_name)
-            session.add(player1)
+        if existing:
+            # Verifica se precisa atualizar
+            should_update = False
+            updates = []
+            
+            # Atualiza status se mudou
+            new_status = 'live' if is_live else match_data.get('status', 'scheduled')
+            if existing.status != new_status:
+                existing.status = new_status
+                should_update = True
+                updates.append(f"status: {existing.status} → {new_status}")
+            
+            # Atualiza placar se disponível
+            if match_data.get('score1') is not None and existing.score1 != match_data.get('score1'):
+                existing.score1 = match_data.get('score1')
+                should_update = True
+                updates.append(f"score1: {match_data.get('score1')}")
+            
+            if match_data.get('score2') is not None and existing.score2 != match_data.get('score2'):
+                existing.score2 = match_data.get('score2')
+                should_update = True
+                updates.append(f"score2: {match_data.get('score2')}")
+            
+            # Atualiza timestamp
+            if should_update:
+                existing.updated_at = datetime.utcnow()
+                logger.info(f"🔄 Atualizada: {existing.player1_name} vs {existing.player2_name} ({', '.join(updates)})")
+                return 'updated'
+            else:
+                logger.debug(f"⏭️  Duplicata: {existing.player1_name} vs {existing.player2_name}")
+                return 'duplicate'
         
-        # Garantir que não seja None
-        player1.total_matches = (player1.total_matches or 0) + 1
-        player1.goals_scored = (player1.goals_scored or 0) + score1
-        player1.goals_conceded = (player1.goals_conceded or 0) + score2
-        
-        if score1 > score2:
-            player1.wins = (player1.wins or 0) + 1
-        elif score1 < score2:
-            player1.losses = (player1.losses or 0) + 1
         else:
-            player1.draws = (player1.draws or 0) + 1
-        
-        player1.last_updated = datetime.utcnow()
-        
-        # ✅ ATUALIZAR PLAYER 2 - CORRIGIDO
-        player2 = session.query(Player).filter_by(name=player2_name).first()
-        if not player2:
-            player2 = Player(name=player2_name)
-            session.add(player2)
-        
-        # Garantir que não seja None
-        player2.total_matches = (player2.total_matches or 0) + 1
-        player2.goals_scored = (player2.goals_scored or 0) + score2
-        player2.goals_conceded = (player2.goals_conceded or 0) + score1
-        
-        if score2 > score1:
-            player2.wins = (player2.wins or 0) + 1
-        elif score2 < score1:
-            player2.losses = (player2.losses or 0) + 1
-        else:
-            player2.draws = (player2.draws or 0) + 1
-        
-        player2.last_updated = datetime.utcnow()
-        
+            # Cria nova partida
+            new_match = Match(
+                match_id=match_id,
+                player1_name=match_data.get('player1_name'),
+                player2_name=match_data.get('player2_name'),
+                player1_team=match_data.get('player1_team'),
+                player2_team=match_data.get('player2_team'),
+                score1=match_data.get('score1'),
+                score2=match_data.get('score2'),
+                date=match_data.get('date'),
+                status='live' if is_live else match_data.get('status', 'scheduled'),
+                location=match_data.get('location'),
+                console=match_data.get('console'),
+                tournament=match_data.get('tournament'),
+                round_info=match_data.get('round'),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            
+            db.session.add(new_match)
+            logger.info(f"✨ Nova partida: {new_match.player1_name} vs {new_match.player2_name} [{new_match.status}]")
+            return 'new'
+            
     except Exception as e:
-        logger.error(f"Erro ao atualizar estatísticas: {e}")
+        logger.error(f"❌ Erro ao processar partida: {e}")
+        return 'error'
 
 
-# Rotas da aplicação
+def start_scheduler():
+    """Inicia o scheduler de coletas automáticas"""
+    global scheduler
+    
+    run_scraper = os.getenv('RUN_SCRAPER', 'true').lower() == 'true'
+    
+    if not run_scraper:
+        logger.info("⏸️  Scraper desabilitado (RUN_SCRAPER=false)")
+        return
+    
+    if scheduler is None:
+        scheduler = BackgroundScheduler()
+        interval = int(os.getenv('SCAN_INTERVAL', 30))
+        
+        scheduler.add_job(
+            func=collect_and_save_matches,
+            trigger="interval",
+            seconds=interval,
+            id='fifa25_scraper',
+            name='Coletar partidas FIFA25',
+            replace_existing=True
+        )
+        
+        scheduler.start()
+        logger.info(f"✅ Scheduler iniciado! Coletando a cada {interval} segundos")
+        
+        # Primeira coleta imediata
+        collect_and_save_matches()
+
+
+# ============================================
+# ROTAS PRINCIPAIS
+# ============================================
+
 @app.route('/')
 def dashboard():
     """Dashboard principal"""
-    
-    # Tenta inicializar banco se ainda não foi
-    if not db_initialized:
-        init_database()
-    
     try:
-        session = get_session()
+        total_matches = Match.query.count()
+        today = datetime.utcnow().date()
+        today_matches = Match.query.filter(
+            db.func.date(Match.date) == today
+        ).count()
         
-        # Estatísticas gerais
-        total_matches = session.query(func.count(Match.id)).scalar() or 0
-        total_players = session.query(func.count(Player.id)).scalar() or 0
+        live_matches = Match.query.filter_by(status='live').all()
         
-        # Partidas recentes
-        recent_matches = session.query(Match).order_by(
-            desc(Match.created_at)
+        recent_matches = Match.query.order_by(
+            Match.date.desc()
         ).limit(10).all()
         
-        # Top jogadores
-        top_players = session.query(Player).order_by(
-            desc(Player.wins)
-        ).limit(5).all()
-        
-        session.close()
-        
         return render_template('dashboard.html',
-                             total_matches=total_matches,
-                             total_players=total_players,
-                             recent_matches=recent_matches,
-                             top_players=top_players,
-                             last_scrape=last_scrape_time,
-                             scrape_count=scrape_count,
-                             scraper_enabled=scraper_enabled)
-    
+            total_matches=total_matches,
+            today_matches=today_matches,
+            live_matches=live_matches,
+            recent_matches=recent_matches,
+            last_scan=last_scan_time,
+            scraper_status=scraper_status
+        )
     except Exception as e:
         logger.error(f"Erro no dashboard: {e}")
-        # Retorna dashboard vazio se banco não estiver disponível
         return render_template('dashboard.html',
-                             total_matches=0,
-                             total_players=0,
-                             recent_matches=[],
-                             top_players=[],
-                             last_scrape=last_scrape_time,
-                             scrape_count=scrape_count,
-                             scraper_enabled=scraper_enabled)
+            total_matches=0,
+            today_matches=0,
+            live_matches=[],
+            recent_matches=[],
+            last_scan=None,
+            scraper_status="Erro"
+        )
 
 
-@app.route('/api/matches')
-def api_matches():
-    """API para listar partidas"""
+@app.route('/matches')
+def matches():
+    """Lista todas as partidas"""
     try:
-        session = get_session()
-        limit = request.args.get('limit', 50, type=int)
+        page = request.args.get('page', 1, type=int)
+        per_page = 50
         
-        matches = session.query(Match).order_by(
-            desc(Match.created_at)
-        ).limit(limit).all()
+        matches_query = Match.query.order_by(Match.date.desc())
+        pagination = matches_query.paginate(page=page, per_page=per_page, error_out=False)
         
-        result = [m.to_dict() for m in matches]
-        session.close()
-        
-        return jsonify(result)
-    
+        return render_template('matches.html',
+            matches=pagination.items,
+            pagination=pagination
+        )
     except Exception as e:
-        logger.error(f"Erro na API de partidas: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/players')
-def api_players():
-    """API para listar jogadores"""
-    try:
-        session = get_session()
-        
-        players = session.query(Player).order_by(
-            desc(Player.total_matches)
-        ).all()
-        
-        result = [p.to_dict() for p in players]
-        session.close()
-        
-        return jsonify(result)
-    
-    except Exception as e:
-        logger.error(f"Erro na API de jogadores: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Erro ao listar partidas: {e}")
+        return render_template('matches.html', matches=[], pagination=None)
 
 
 @app.route('/api/stats')
 def api_stats():
-    """API para estatísticas gerais"""
+    """API com estatísticas gerais"""
     try:
-        session = get_session()
+        total = Match.query.count()
+        live = Match.query.filter_by(status='live').count()
         
-        stats = {
-            'total_matches': session.query(func.count(Match.id)).scalar() or 0,
-            'total_players': session.query(func.count(Player.id)).scalar() or 0,
-            'last_scrape': last_scrape_time.isoformat() if last_scrape_time else None,
-            'scrape_count': scrape_count,
-            'scraper_enabled': scraper_enabled,
-            'db_initialized': db_initialized
-        }
+        today = datetime.utcnow().date()
+        today_matches = Match.query.filter(
+            db.func.date(Match.date) == today
+        ).count()
         
-        session.close()
-        return jsonify(stats)
-    
+        return jsonify({
+            'total_matches': total,
+            'live_matches': live,
+            'today_matches': today_matches,
+            'last_scan': last_scan_time.isoformat() if last_scan_time else None,
+            'status': scraper_status
+        })
     except Exception as e:
-        logger.error(f"Erro na API de stats: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/health')
-def health():
-    """Health check para o Render"""
-    return jsonify({
-        'status': 'ok',
-        'db_initialized': db_initialized,
-        'scraper_enabled': scraper_enabled
-    })
+# ============================================
+# ROTAS DE DEBUG
+# ============================================
+
+@app.route('/debug/database-info')
+def debug_database_info():
+    """Mostra informações completas do banco"""
+    try:
+        total_matches = Match.query.count()
+        
+        # Últimas 10 partidas
+        recent = Match.query.order_by(Match.date.desc()).limit(10).all()
+        
+        # Partidas por status
+        live_count = Match.query.filter_by(status='live').count()
+        scheduled_count = Match.query.filter_by(status='scheduled').count()
+        finished_count = Match.query.filter_by(status='finished').count()
+        
+        # Partidas de hoje
+        today = datetime.utcnow().date()
+        today_count = Match.query.filter(
+            db.func.date(Match.date) == today
+        ).count()
+        
+        return jsonify({
+            'status': 'success',
+            'database': {
+                'total_matches': total_matches,
+                'by_status': {
+                    'live': live_count,
+                    'scheduled': scheduled_count,
+                    'finished': finished_count
+                },
+                'today_matches': today_count
+            },
+            'scraper': {
+                'last_scan': last_scan_time.isoformat() if last_scan_time else None,
+                'status': scraper_status
+            },
+            'recent_matches': [
+                {
+                    'id': m.match_id,
+                    'player1': m.player1_name,
+                    'player2': m.player2_name,
+                    'score': f"{m.score1 or '-'} x {m.score2 or '-'}",
+                    'status': m.status,
+                    'date': m.date.isoformat() if m.date else None
+                }
+                for m in recent
+            ]
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-# Inicializar scheduler
-if scraper_enabled:
-    scheduler = BackgroundScheduler()
-    interval = int(os.getenv('SCAN_INTERVAL', 30))
-    scheduler.add_job(
-        func=scrape_job,
-        trigger="interval",
-        seconds=interval,
-        id='scrape_job',
-        name='Coletar partidas FIFA25',
-        replace_existing=True
-    )
-    scheduler.start()
-    logger.info(f"✅ Scheduler iniciado - Intervalo: {interval}s")
-else:
-    logger.info("⚠️  Scraper desabilitado via variável RUN_SCRAPER")
+@app.route('/debug/test-scraper')
+def debug_test_scraper():
+    """Testa o scraper sem salvar"""
+    try:
+        from web_scraper.fifa25_scraper import FIFA25Scraper
+        scraper = FIFA25Scraper()
+        
+        live = scraper.get_live_matches()
+        recent = scraper.get_recent_matches()
+        
+        # Verifica duplicatas
+        duplicates = 0
+        new = 0
+        
+        for match_data in recent:
+            existing = Match.query.filter_by(
+                match_id=match_data.get('match_id')
+            ).first()
+            if existing:
+                duplicates += 1
+            else:
+                new += 1
+        
+        return jsonify({
+            'status': 'success',
+            'found': {
+                'live': len(live),
+                'recent': len(recent),
+                'total': len(live) + len(recent)
+            },
+            'analysis': {
+                'new_matches': new,
+                'duplicates': duplicates
+            },
+            'sample_matches': [
+                {
+                    'player1': m.get('player1_name'),
+                    'player2': m.get('player2_name'),
+                    'status': m.get('status')
+                }
+                for m in recent[:5]
+            ]
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-# Tentar inicializar banco ao startar (mas não falha se der erro)
-init_database()
+@app.route('/debug/force-collect')
+def debug_force_collect():
+    """Força uma coleta imediata"""
+    try:
+        result = collect_and_save_matches()
+        
+        if result:
+            return jsonify({
+                'status': 'success',
+                'message': 'Coleta forçada executada!',
+                'results': result,
+                'total_matches_now': Match.query.count()
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Erro durante a coleta'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/debug/clear-old-matches')
+def debug_clear_old():
+    """Remove partidas antigas (7+ dias)"""
+    try:
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        deleted = Match.query.filter(Match.date < week_ago).delete()
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'deleted': deleted,
+            'remaining': Match.query.count()
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/debug/reset-database')
+def debug_reset():
+    """⚠️ CUIDADO: Reseta todo o banco"""
+    try:
+        deleted = Match.query.delete()
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': '⚠️ Banco resetado!',
+            'deleted_matches': deleted
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# ============================================
+# INICIALIZAÇÃO
+# ============================================
+
+@app.before_request
+def create_tables():
+    """Cria as tabelas no primeiro request"""
+    if not hasattr(app, '_tables_created'):
+        with app.app_context():
+            db.create_all()
+            app._tables_created = True
+            logger.info("✅ Tabelas do banco criadas/verificadas")
 
 
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+        start_scheduler()
+    
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
