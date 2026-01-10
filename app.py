@@ -56,14 +56,25 @@ class FIFA25Scraper:
             url = f"{self.base_url}/api/live-matches"
             response = self.session.get(url, timeout=10)
             
+            logger.info(f"   Status: {response.status_code} | Content-Type: {response.headers.get('content-type', 'N/A')}")
+            
             if response.status_code == 200:
+                content_type = response.headers.get('content-type', '')
+                if 'json' not in content_type.lower():
+                    logger.warning(f"⚠️  Resposta não é JSON! Content-Type: {content_type}")
+                    logger.debug(f"   Primeiros 200 chars: {response.text[:200]}")
+                    return []
+                
                 data = response.json()
                 matches = self._parse_matches(data, is_live=True)
                 logger.info(f"✅ {len(matches)} ao vivo")
                 return matches
+            else:
+                logger.warning(f"⚠️  Status {response.status_code}")
             return []
         except Exception as e:
             logger.error(f"❌ Erro live: {e}")
+            logger.debug(f"   Response text: {response.text[:500] if 'response' in locals() else 'N/A'}")
             return []
     
     def get_recent_matches(self):
@@ -72,14 +83,25 @@ class FIFA25Scraper:
             url = f"{self.base_url}/api/nearest-matches"
             response = self.session.get(url, timeout=10)
             
+            logger.info(f"   Status: {response.status_code} | Content-Type: {response.headers.get('content-type', 'N/A')}")
+            
             if response.status_code == 200:
+                content_type = response.headers.get('content-type', '')
+                if 'json' not in content_type.lower():
+                    logger.warning(f"⚠️  Resposta não é JSON! Content-Type: {content_type}")
+                    logger.debug(f"   Primeiros 200 chars: {response.text[:200]}")
+                    return []
+                
                 data = response.json()
                 matches = self._parse_matches(data, is_live=False)
                 logger.info(f"✅ {len(matches)} recentes")
                 return matches
+            else:
+                logger.warning(f"⚠️  Status {response.status_code}")
             return []
         except Exception as e:
             logger.error(f"❌ Erro recent: {e}")
+            logger.debug(f"   Response text: {response.text[:500] if 'response' in locals() else 'N/A'}")
             return []
     
     def _parse_matches(self, data, is_live=False):
@@ -484,6 +506,125 @@ def debug_reset():
             'status': 'success',
             'message': 'Banco resetado!',
             'deleted_matches': deleted
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/debug/test-api')
+def debug_test_api():
+    """Testa a API do site diretamente"""
+    try:
+        import requests
+        
+        results = {}
+        
+        # Testa live-matches
+        try:
+            url_live = "https://football.esportsbattle.com/api/live-matches"
+            resp_live = requests.get(url_live, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            results['live'] = {
+                'status_code': resp_live.status_code,
+                'content_type': resp_live.headers.get('content-type', 'N/A'),
+                'is_json': 'json' in resp_live.headers.get('content-type', '').lower(),
+                'response_preview': resp_live.text[:500]
+            }
+        except Exception as e:
+            results['live'] = {'error': str(e)}
+        
+        # Testa nearest-matches
+        try:
+            url_recent = "https://football.esportsbattle.com/api/nearest-matches"
+            resp_recent = requests.get(url_recent, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            results['recent'] = {
+                'status_code': resp_recent.status_code,
+                'content_type': resp_recent.headers.get('content-type', 'N/A'),
+                'is_json': 'json' in resp_recent.headers.get('content-type', '').lower(),
+                'response_preview': resp_recent.text[:500]
+            }
+        except Exception as e:
+            results['recent'] = {'error': str(e)}
+        
+        return jsonify({
+            'status': 'success',
+            'api_tests': results
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/debug/add-mock-data')
+def debug_add_mock_data():
+    """Adiciona dados de exemplo para testar o dashboard"""
+    try:
+        from datetime import timedelta
+        import random
+        
+        players = [
+            ("Uncle", "v1nn"),
+            ("Arcos", "LaikingDast"),
+            ("v1nniePuh", "why"),
+            ("Totti", "shakedele"),
+            ("kirman", "Lapinzz10L"),
+        ]
+        
+        teams = ["Real Madrid", "Barcelona", "Manchester United", "PSG", "Bayern Munich"]
+        
+        count = 0
+        base_time = datetime.utcnow()
+        
+        for i, (p1, p2) in enumerate(players):
+            # Partidas passadas
+            for j in range(3):
+                match = Match(
+                    match_id=f"mock_{i}_{j}",
+                    player1_name=p1,
+                    player2_name=p2,
+                    player1_team=random.choice(teams),
+                    player2_team=random.choice(teams),
+                    score1=random.randint(0, 5),
+                    score2=random.randint(0, 5),
+                    date=base_time - timedelta(hours=random.randint(1, 48)),
+                    status='finished',
+                    location='Wembley',
+                    console='PS5',
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.session.add(match)
+                count += 1
+        
+        # Partidas ao vivo
+        for i in range(2):
+            match = Match(
+                match_id=f"mock_live_{i}",
+                player1_name=players[i][0],
+                player2_name=players[i][1],
+                player1_team=random.choice(teams),
+                player2_team=random.choice(teams),
+                score1=random.randint(0, 3),
+                score2=random.randint(0, 3),
+                date=datetime.utcnow(),
+                status='live',
+                location='Wembley',
+                console='PS5',
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.session.add(match)
+            count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'{count} partidas mock adicionadas!',
+            'total_matches': Match.query.count()
         })
     except Exception as e:
         db.session.rollback()
