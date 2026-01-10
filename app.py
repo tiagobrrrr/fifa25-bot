@@ -1,5 +1,4 @@
-from flask import Flask, render_template, jsonify, request, send_file
-from flask_sqlalchemy import SQLAlchemy
+from flask import Flask, render_template, jsonify, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 import os
@@ -20,23 +19,22 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SESSION_SECRET', 'dev-secret-key-change-this')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///fifa25.db')
+
+# Correção para PostgreSQL do Render
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://')
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 300,
 }
 
-# Inicializa banco de dados
-db = SQLAlchemy(app)
+# IMPORTANTE: Importa db e models DEPOIS de configurar o app
+from models import db, Match, Player
 
-# Importa models
-from models import Match, Player, db as models_db
-models_db.init_app(app)
-
-# Importa scraper
-from web_scraper.fifa25_scraper import FIFA25Scraper
+# Inicializa o banco com o app
+db.init_app(app)
 
 # Variáveis globais
 last_scan_time = None
@@ -44,7 +42,7 @@ scraper_status = "Aguardando primeira execução"
 scheduler = None
 
 # ============================================
-# FUNÇÕES DE COLETA E SALVAMENTO - MELHORADAS
+# FUNÇÕES DE COLETA - MELHORADAS
 # ============================================
 
 def collect_and_save_matches():
@@ -57,82 +55,89 @@ def collect_and_save_matches():
         logger.info("=" * 80)
         
         scraper_status = "Coletando..."
+        
+        # Importa scraper aqui para evitar circular imports
+        from web_scraper.fifa25_scraper import FIFA25Scraper
         scraper = FIFA25Scraper()
         
         # Estatísticas
-        before_count = Match.query.count()
-        logger.info(f"📊 Partidas no banco ANTES da coleta: {before_count}")
-        
-        # Coleta partidas
-        live_matches = scraper.get_live_matches()
-        recent_matches = scraper.get_recent_matches()
-        
-        logger.info(f"🔍 Partidas encontradas pelo scraper:")
-        logger.info(f"   └─ Ao vivo: {len(live_matches)}")
-        logger.info(f"   └─ Recentes: {len(recent_matches)}")
-        
-        # Contadores
-        new_count = 0
-        updated_count = 0
-        duplicate_count = 0
-        error_count = 0
-        
-        # Processa partidas ao vivo
-        logger.info("🔴 Processando partidas AO VIVO...")
-        for match_data in live_matches:
-            result = process_match(match_data, is_live=True)
-            if result == 'new':
-                new_count += 1
-            elif result == 'updated':
-                updated_count += 1
-            elif result == 'duplicate':
-                duplicate_count += 1
-            else:
-                error_count += 1
-        
-        # Processa partidas recentes
-        logger.info("📋 Processando partidas RECENTES...")
-        for match_data in recent_matches:
-            result = process_match(match_data, is_live=False)
-            if result == 'new':
-                new_count += 1
-            elif result == 'updated':
-                updated_count += 1
-            elif result == 'duplicate':
-                duplicate_count += 1
-            else:
-                error_count += 1
-        
-        # Commit de todas as mudanças
-        db.session.commit()
-        
-        # Estatísticas finais
-        after_count = Match.query.count()
-        last_scan_time = datetime.utcnow()
-        scraper_status = "Ativo"
-        
-        logger.info("=" * 80)
-        logger.info("✅ COLETA FINALIZADA COM SUCESSO!")
-        logger.info(f"📊 ESTATÍSTICAS:")
-        logger.info(f"   ├─ Partidas no banco ANTES: {before_count}")
-        logger.info(f"   ├─ Partidas no banco DEPOIS: {after_count}")
-        logger.info(f"   ├─ Novas partidas salvas: {new_count}")
-        logger.info(f"   ├─ Partidas atualizadas: {updated_count}")
-        logger.info(f"   ├─ Duplicatas ignoradas: {duplicate_count}")
-        logger.info(f"   └─ Erros encontrados: {error_count}")
-        logger.info("=" * 80)
-        
-        return {
-            'new': new_count,
-            'updated': updated_count,
-            'duplicates': duplicate_count,
-            'errors': error_count
-        }
+        with app.app_context():
+            before_count = Match.query.count()
+            logger.info(f"📊 Partidas no banco ANTES da coleta: {before_count}")
+            
+            # Coleta partidas
+            live_matches = scraper.get_live_matches()
+            recent_matches = scraper.get_recent_matches()
+            
+            logger.info(f"🔍 Partidas encontradas pelo scraper:")
+            logger.info(f"   └─ Ao vivo: {len(live_matches)}")
+            logger.info(f"   └─ Recentes: {len(recent_matches)}")
+            
+            # Contadores
+            new_count = 0
+            updated_count = 0
+            duplicate_count = 0
+            error_count = 0
+            
+            # Processa partidas ao vivo
+            logger.info("🔴 Processando partidas AO VIVO...")
+            for match_data in live_matches:
+                result = process_match(match_data, is_live=True)
+                if result == 'new':
+                    new_count += 1
+                elif result == 'updated':
+                    updated_count += 1
+                elif result == 'duplicate':
+                    duplicate_count += 1
+                else:
+                    error_count += 1
+            
+            # Processa partidas recentes
+            logger.info("📋 Processando partidas RECENTES...")
+            for match_data in recent_matches:
+                result = process_match(match_data, is_live=False)
+                if result == 'new':
+                    new_count += 1
+                elif result == 'updated':
+                    updated_count += 1
+                elif result == 'duplicate':
+                    duplicate_count += 1
+                else:
+                    error_count += 1
+            
+            # Commit de todas as mudanças
+            db.session.commit()
+            
+            # Estatísticas finais
+            after_count = Match.query.count()
+            last_scan_time = datetime.utcnow()
+            scraper_status = "Ativo"
+            
+            logger.info("=" * 80)
+            logger.info("✅ COLETA FINALIZADA COM SUCESSO!")
+            logger.info(f"📊 ESTATÍSTICAS:")
+            logger.info(f"   ├─ Partidas no banco ANTES: {before_count}")
+            logger.info(f"   ├─ Partidas no banco DEPOIS: {after_count}")
+            logger.info(f"   ├─ Novas partidas salvas: {new_count}")
+            logger.info(f"   ├─ Partidas atualizadas: {updated_count}")
+            logger.info(f"   ├─ Duplicatas ignoradas: {duplicate_count}")
+            logger.info(f"   └─ Erros encontrados: {error_count}")
+            logger.info("=" * 80)
+            
+            return {
+                'new': new_count,
+                'updated': updated_count,
+                'duplicates': duplicate_count,
+                'errors': error_count
+            }
         
     except Exception as e:
-        db.session.rollback()
         scraper_status = f"Erro: {str(e)}"
         logger.error(f"❌ ERRO CRÍTICO na coleta: {e}", exc_info=True)
+        try:
+            db.session.rollback()
+        except:
+            pass
         return None
 
 
@@ -161,7 +166,7 @@ def process_match(match_data, is_live=False):
             if existing.status != new_status:
                 existing.status = new_status
                 should_update = True
-                updates.append(f"status: {existing.status} → {new_status}")
+                updates.append(f"status: {new_status}")
             
             # Atualiza placar se disponível
             if match_data.get('score1') is not None and existing.score1 != match_data.get('score1'):
@@ -294,11 +299,12 @@ def matches():
         
         return render_template('matches.html',
             matches=pagination.items,
-            pagination=pagination
+            pagination=pagination,
+            last_scan=last_scan_time
         )
     except Exception as e:
         logger.error(f"Erro ao listar partidas: {e}")
-        return render_template('matches.html', matches=[], pagination=None)
+        return render_template('matches.html', matches=[], pagination=None, last_scan=last_scan_time)
 
 
 @app.route('/api/stats')
@@ -334,15 +340,12 @@ def debug_database_info():
     try:
         total_matches = Match.query.count()
         
-        # Últimas 10 partidas
         recent = Match.query.order_by(Match.date.desc()).limit(10).all()
         
-        # Partidas por status
         live_count = Match.query.filter_by(status='live').count()
         scheduled_count = Match.query.filter_by(status='scheduled').count()
         finished_count = Match.query.filter_by(status='finished').count()
         
-        # Partidas de hoje
         today = datetime.utcnow().date()
         today_count = Match.query.filter(
             db.func.date(Match.date) == today
@@ -389,7 +392,6 @@ def debug_test_scraper():
         live = scraper.get_live_matches()
         recent = scraper.get_recent_matches()
         
-        # Verifica duplicatas
         duplicates = 0
         new = 0
         
@@ -488,20 +490,12 @@ def debug_reset():
 # INICIALIZAÇÃO
 # ============================================
 
-@app.before_request
-def create_tables():
-    """Cria as tabelas no primeiro request"""
-    if not hasattr(app, '_tables_created'):
-        with app.app_context():
-            db.create_all()
-            app._tables_created = True
-            logger.info("✅ Tabelas do banco criadas/verificadas")
+with app.app_context():
+    db.create_all()
+    logger.info("✅ Tabelas do banco criadas/verificadas")
+    start_scheduler()
 
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        start_scheduler()
-    
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)

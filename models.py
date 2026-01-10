@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
+# Inicializa SQLAlchemy UMA ÚNICA VEZ
 db = SQLAlchemy()
 
 class Match(db.Model):
@@ -21,7 +22,7 @@ class Match(db.Model):
     
     # Informações da partida
     date = db.Column(db.DateTime, index=True)
-    status = db.Column(db.String(20), default='scheduled', index=True)  # scheduled, live, finished
+    status = db.Column(db.String(20), default='scheduled', index=True)
     location = db.Column(db.String(100))
     console = db.Column(db.String(50))
     tournament = db.Column(db.String(100))

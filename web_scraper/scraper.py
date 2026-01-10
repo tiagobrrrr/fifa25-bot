@@ -1,13 +1,11 @@
 import requests
-from bs4 import BeautifulSoup
-import logging
 from datetime import datetime
-import json
+import logging
 
 logger = logging.getLogger(__name__)
 
 class FIFA25Scraper:
-    """Scraper melhorado para partidas FIFA25"""
+    """Scraper para partidas FIFA25"""
     
     def __init__(self):
         self.base_url = "https://football.esportsbattle.com"
@@ -27,15 +25,15 @@ class FIFA25Scraper:
             
             if response.status_code == 200:
                 data = response.json()
-                matches = self._parse_live_matches(data)
+                matches = self._parse_matches(data, is_live=True)
                 logger.info(f"✅ {len(matches)} partidas ao vivo encontradas")
                 return matches
             else:
-                logger.warning(f"⚠️  Status {response.status_code} ao coletar partidas ao vivo")
+                logger.warning(f"⚠️  Status {response.status_code}")
                 return []
                 
         except Exception as e:
-            logger.error(f"❌ Erro ao coletar partidas ao vivo: {e}")
+            logger.error(f"❌ Erro ao coletar ao vivo: {e}")
             return []
     
     def get_recent_matches(self):
@@ -48,54 +46,30 @@ class FIFA25Scraper:
             
             if response.status_code == 200:
                 data = response.json()
-                matches = self._parse_recent_matches(data)
+                matches = self._parse_matches(data, is_live=False)
                 logger.info(f"✅ {len(matches)} partidas recentes encontradas")
                 return matches
             else:
-                logger.warning(f"⚠️  Status {response.status_code} ao coletar partidas recentes")
+                logger.warning(f"⚠️  Status {response.status_code}")
                 return []
                 
         except Exception as e:
-            logger.error(f"❌ Erro ao coletar partidas recentes: {e}")
+            logger.error(f"❌ Erro ao coletar recentes: {e}")
             return []
     
-    def _parse_live_matches(self, data):
-        """Parse das partidas ao vivo"""
+    def _parse_matches(self, data, is_live=False):
+        """Parse das partidas"""
         matches = []
         
         try:
-            if isinstance(data, list):
-                for item in data:
-                    match = self._extract_match_data(item, is_live=True)
-                    if match:
-                        matches.append(match)
-            elif isinstance(data, dict) and 'matches' in data:
-                for item in data['matches']:
-                    match = self._extract_match_data(item, is_live=True)
-                    if match:
-                        matches.append(match)
+            items = data if isinstance(data, list) else data.get('matches', [])
+            
+            for item in items:
+                match = self._extract_match_data(item, is_live)
+                if match:
+                    matches.append(match)
         except Exception as e:
-            logger.error(f"❌ Erro ao fazer parse de partidas ao vivo: {e}")
-        
-        return matches
-    
-    def _parse_recent_matches(self, data):
-        """Parse das partidas recentes"""
-        matches = []
-        
-        try:
-            if isinstance(data, list):
-                for item in data:
-                    match = self._extract_match_data(item, is_live=False)
-                    if match:
-                        matches.append(match)
-            elif isinstance(data, dict) and 'matches' in data:
-                for item in data['matches']:
-                    match = self._extract_match_data(item, is_live=False)
-                    if match:
-                        matches.append(match)
-        except Exception as e:
-            logger.error(f"❌ Erro ao fazer parse de partidas recentes: {e}")
+            logger.error(f"❌ Erro no parse: {e}")
         
         return matches
     
@@ -103,11 +77,9 @@ class FIFA25Scraper:
         """Extrai dados de uma partida"""
         try:
             match_id = str(item.get('id', ''))
-            
             if not match_id:
                 return None
             
-            # Dados dos jogadores
             p1 = item.get('participant1', {})
             p2 = item.get('participant2', {})
             
@@ -117,11 +89,9 @@ class FIFA25Scraper:
             player1_team = p1.get('team', {}).get('name') if p1.get('team') else None
             player2_team = p2.get('team', {}).get('name') if p2.get('team') else None
             
-            # Placar
             score1 = item.get('score1')
             score2 = item.get('score2')
             
-            # Data
             date_str = item.get('date')
             date = None
             if date_str:
@@ -132,7 +102,6 @@ class FIFA25Scraper:
             else:
                 date = datetime.utcnow()
             
-            # Status
             status_id = item.get('status_id', 0)
             if is_live:
                 status = 'live'
@@ -141,7 +110,6 @@ class FIFA25Scraper:
             else:
                 status = 'scheduled'
             
-            # Outras informações
             location = item.get('location', {}).get('token', '') if item.get('location') else None
             console = item.get('console', {}).get('token', '') if item.get('console') else None
             tournament = item.get('tournament', {}).get('name') if item.get('tournament') else None
@@ -164,5 +132,5 @@ class FIFA25Scraper:
             }
             
         except Exception as e:
-            logger.error(f"❌ Erro ao extrair dados da partida: {e}")
+            logger.error(f"❌ Erro ao extrair: {e}")
             return None
