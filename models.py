@@ -22,6 +22,7 @@ class Match(db.Model):
     location = db.Column(db.String(100))
     console = db.Column(db.String(50))
     tournament = db.Column(db.String(100))
+    tournament_id = db.Column(db.String(50))
     round_info = db.Column(db.String(50))
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
