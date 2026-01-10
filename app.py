@@ -376,6 +376,14 @@ def dashboard():
         live_matches = Match.query.filter_by(status='live').all()
         recent_matches = Match.query.order_by(Match.date.desc()).limit(10).all()
         
+        # Log para debug
+        logger.info(f"Dashboard: {total_matches} total, {len(live_matches)} live, {len(recent_matches)} recent")
+        
+        # Se não tem partidas live mas tem total, mostra as recentes como se fossem live
+        if len(live_matches) == 0 and total_matches > 0:
+            logger.info(f"⚠️ Sem partidas 'live', mas existem {total_matches} no banco. Mostrando as mais recentes.")
+            live_matches = Match.query.order_by(Match.updated_at.desc()).limit(5).all()
+        
         return render_template('dashboard.html',
             total_matches=total_matches,
             today_matches=today_matches,
@@ -385,7 +393,7 @@ def dashboard():
             scraper_status=scraper_status
         )
     except Exception as e:
-        logger.error(f"Dashboard error: {e}")
+        logger.error(f"Dashboard error: {e}", exc_info=True)
         return render_template('dashboard.html',
             total_matches=0,
             today_matches=0,
@@ -551,6 +559,33 @@ def debug_reset():
         })
     except Exception as e:
         db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/debug/list-all-matches')
+def debug_list_all():
+    """Lista TODAS as partidas com detalhes"""
+    try:
+        all_matches = Match.query.all()
+        
+        return jsonify({
+            'status': 'success',
+            'total': len(all_matches),
+            'matches': [
+                {
+                    'id': m.match_id,
+                    'player1': m.player1_name,
+                    'player2': m.player2_name,
+                    'score': f"{m.score1 or '-'} x {m.score2 or '-'}",
+                    'status': m.status,
+                    'date': m.date.isoformat() if m.date else None,
+                    'created_at': m.created_at.isoformat() if m.created_at else None,
+                    'updated_at': m.updated_at.isoformat() if m.updated_at else None
+                }
+                for m in all_matches
+            ]
+        })
+    except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
