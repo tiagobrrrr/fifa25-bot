@@ -1,44 +1,65 @@
 {% extends "layout.html" %}
-{% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <h5>📺 Partidas</h5>
-  <div>
-    <a href="/" class="btn btn-sm btn-outline-secondary">Voltar</a>
-  </div>
+{% block title %}Todas as Partidas - FIFA25 Bot{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px;">📋 Histórico de Partidas</h2>
+
+{% if matches %}
+<div class="matches-list">
+    {% for match in matches %}
+    <div class="match-item">
+        <div class="match-players">
+            <strong>{{ match.player1_name }}</strong> vs <strong>{{ match.player2_name }}</strong>
+            <br>
+            <small style="color: #7f8c8d;">
+                {{ match.player1_team or 'N/A' }} vs {{ match.player2_team or 'N/A' }}
+                {% if match.location %} | 📍 {{ match.location }}{% endif %}
+                {% if match.console %} | 🎮 {{ match.console }}{% endif %}
+            </small>
+        </div>
+        <div class="match-score">
+            {{ match.score1 or '-' }} x {{ match.score2 or '-' }}
+        </div>
+        <div class="match-info">
+            <span class="status-badge status-{{ match.status }}">
+                {% if match.status == 'live' %}● AO VIVO
+                {% elif match.status == 'finished' %}✓ Finalizada
+                {% else %}⏰ Agendada
+                {% endif %}
+            </span>
+            <br>
+            <small>{{ match.date.strftime('%d/%m/%Y %H:%M') if match.date else 'N/A' }}</small>
+            <br>
+            <small style="opacity: 0.6;">ID: {{ match.match_id }}</small>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 
-<table class="table table-sm table-striped table-hover">
-  <thead class="table-light">
-    <tr>
-      <th>ID</th>
-      <th>Time 1</th>
-      <th>Time 2</th>
-      <th>Placar</th>
-      <th>Status</th>
-      <th>Liga</th>
-      <th>Estádio</th>
-      <th>Horário</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for m in matches %}
-    <tr>
-      <td>{{ m.id }}</td>
-      <td>{{ m.team1 }}</td>
-      <td>{{ m.team2 }}</td>
-      <td>{{ m.score }}</td>
-      <td>{{ m.status }}</td>
-      <td>{{ m.league }}</td>
-      <td>{{ m.stadium }}</td>
-      <td>{{ m.match_time }}</td>
-    </tr>
-    {% endfor %}
-    {% if matches|length == 0 %}
-    <tr><td colspan="8" class="text-muted">Nenhuma partida disponível.</td></tr>
+{% if pagination %}
+<div style="text-align: center; margin-top: 30px;">
+    {% if pagination.has_prev %}
+    <a href="?page={{ pagination.prev_num }}" class="debug-link">← Anterior</a>
     {% endif %}
-  </tbody>
-</table>
+    
+    <span style="color: white; margin: 0 20px;">
+        Página {{ pagination.page }} de {{ pagination.pages }}
+    </span>
+    
+    {% if pagination.has_next %}
+    <a href="?page={{ pagination.next_num }}" class="debug-link">Próxima →</a>
+    {% endif %}
+</div>
+{% endif %}
 
+{% else %}
+<div class="matches-list">
+    <p style="text-align: center; color: #7f8c8d; padding: 60px;">
+        😔 Nenhuma partida encontrada no banco de dados.
+        <br><br>
+        <a href="/debug/force-collect" class="debug-link">🚀 Forçar Coleta Agora</a>
+    </p>
+</div>
+{% endif %}
 {% endblock %}
-

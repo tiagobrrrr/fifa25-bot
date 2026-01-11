@@ -68,6 +68,20 @@ class FIFA25Scraper:
         try:
             logger.info("🔴 Coletando partidas AO VIVO...")
             
+            # Endpoint 1: Streaming geral (NOVO!)
+            try:
+                url = f"{self.base_url}/api/locations/streaming"
+                response = self.session.get(url, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    matches = self._parse_streaming_data(data, 'all')
+                    all_matches.extend(matches)
+                    logger.info(f"   ✓ Streaming geral: {len(matches)} partidas")
+            except Exception as e:
+                logger.debug(f"   × Streaming geral: {e}")
+            
+            # Endpoint 2: Locations específicas
             for location_id in self.location_ids:
                 try:
                     url = f"{self.base_url}/api/locations/{location_id}/streaming"
@@ -90,12 +104,26 @@ class FIFA25Scraper:
             return []
     
     def get_recent_matches(self):
-        """Coleta partidas recentes via tournaments endpoint"""
+        """Coleta partidas recentes via múltiplos endpoints"""
         all_matches = []
         
         try:
             logger.info("📋 Coletando partidas recentes...")
             
+            # Endpoint 1: nearest-matches (NOVO!)
+            try:
+                url = f"{self.base_url}/api/tournaments/nearest-matches"
+                response = self.session.get(url, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    matches = self._parse_nearest_matches(data)
+                    all_matches.extend(matches)
+                    logger.info(f"   ✓ Nearest-matches: {len(matches)} partidas")
+            except Exception as e:
+                logger.debug(f"   × Nearest-matches: {e}")
+            
+            # Endpoint 2: Torneios específicos
             for tournament_id in self.tournament_ids:
                 try:
                     url = f"{self.base_url}/api/tournaments/{tournament_id}/results"
@@ -132,6 +160,22 @@ class FIFA25Scraper:
                     matches.append(match)
         except Exception as e:
             logger.debug(f"Parse streaming error: {e}")
+        
+        return matches
+    
+    def _parse_nearest_matches(self, data):
+        """Parse do endpoint nearest-matches (NOVO!)"""
+        matches = []
+        
+        try:
+            items = data if isinstance(data, list) else data.get('matches', [])
+            
+            for item in items:
+                match = self._extract_match_data(item, is_live=False)
+                if match:
+                    matches.append(match)
+        except Exception as e:
+            logger.debug(f"Parse nearest-matches error: {e}")
         
         return matches
     

@@ -1,127 +1,228 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>FIFA25 Bot</title>
-
-    <!-- Bootstrap -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FIFA25 Bot{% endblock %}</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
-            background: #0d1117;
-            color: #e5e7eb;
-        }
-
-        /* NAVBAR PREMIUM */
-        header.navbar {
-            background: linear-gradient(90deg, #0f172a, #1e40af);
-            padding: 12px 0;
-        }
-
-        .navbar-brand {
-            font-weight: 700;
-            color: #fff !important;
-            letter-spacing: .5px;
-        }
-
-        /* SIDEBAR */
-        .sidebar {
-            width: 240px;
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            padding-top: 60px;
-            background: #111827;
-            box-shadow: 4px 0 12px rgba(0,0,0,0.2);
-        }
-
-        .sidebar a {
-            color: #cbd5e1;
-            padding: 12px 20px;
-            display: block;
-            text-decoration: none;
-            font-size: 15px;
-        }
-
-        .sidebar a:hover {
-            background: #1e293b;
-            color: #fff;
-        }
-
-        /* CONTEÚDO */
-        .content {
-            margin-left: 260px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             padding: 20px;
         }
-
-        /* CARTÕES */
-        .card {
-            background: #1e293b;
-            border: none;
-            border-radius: 10px;
-            box-shadow: 0 6px 15px rgba(0,0,0,0.25);
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
         }
-
-        .live-badge {
-            background: #ef4444;
-            padding: 4px 8px;
+        
+        header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            padding: 30px;
             color: white;
-            border-radius: 6px;
-            font-weight: 600;
         }
-
-        /* Última varredura */
-        .last-scan {
-            color: #fff !important;
-            font-weight: 600;
-            font-size: 14px;
-            margin-left: 2px;
+        
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
         }
-
-        /* Tabela */
-        table th, table td {
-            color: #e2e8f0;
-            white-space: nowrap;
+        
+        nav {
+            background: #34495e;
+            padding: 0;
+        }
+        
+        nav ul {
+            list-style: none;
+            display: flex;
+            gap: 0;
+        }
+        
+        nav a {
+            display: block;
+            padding: 15px 30px;
+            color: white;
+            text-decoration: none;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+        
+        nav a:hover, nav a.active {
+            background: #2c3e50;
+            border-bottom-color: #3498db;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px;
+            border-radius: 10px;
+            color: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .stat-card h3 {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card .value {
+            font-size: 2.5em;
+            font-weight: bold;
+        }
+        
+        .matches-list {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+        }
+        
+        .match-item {
+            background: white;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .match-players {
+            flex: 1;
+            font-size: 1.1em;
+        }
+        
+        .match-score {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin: 0 20px;
+        }
+        
+        .match-info {
+            text-align: right;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        
+        .status-live {
+            background: #e74c3c;
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-scheduled {
+            background: #3498db;
+            color: white;
+        }
+        
+        .status-finished {
+            background: #95a5a6;
+            color: white;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        
+        .debug-section {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+        
+        .debug-section h3 {
+            margin-bottom: 15px;
+        }
+        
+        .debug-link {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 5px;
+            transition: all 0.3s;
+        }
+        
+        .debug-link:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        
+        footer {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            margin-top: 30px;
         }
     </style>
+    {% block extra_css %}{% endblock %}
 </head>
-
 <body>
-
-    <!-- NAVBAR -->
-    <nav class="navbar navbar-expand-lg navbar-dark">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="/">FIFA25 Bot</a>
+    <div class="container">
+        <header>
+            <h1>🎮 FIFA25 Bot Dashboard</h1>
+            <p>Monitoramento em tempo real de partidas FIFA25</p>
+        </header>
+        
+        <nav>
+            <ul>
+                <li><a href="/" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a></li>
+                <li><a href="/matches" class="{% if request.endpoint == 'matches' %}active{% endif %}">Todas as Partidas</a></li>
+                <li><a href="/debug/database-info" target="_blank">Debug</a></li>
+            </ul>
+        </nav>
+        
+        <div class="content">
+            {% block content %}{% endblock %}
         </div>
-    </nav>
-
-    <!-- SIDEBAR -->
-    <div class="sidebar">
-        <a href="/"><span>📊</span> Dashboard</a>
-        <a href="/matches"><span>⚽</span> Partidas</a>
-        <a href="/players"><span>🧑</span> Jogadores</a>
-        <a href="/reports"><span>📁</span> Relatórios</a>
+        
+        <footer>
+            <p>FIFA25 Bot © 2026 | Desenvolvido com Flask + BeautifulSoup</p>
+            <p style="margin-top: 10px; opacity: 0.7;">
+                Última atualização: {{ last_scan.strftime('%d/%m/%Y %H:%M:%S') if last_scan else 'Aguardando...' }}
+            </p>
+        </footer>
     </div>
-
-    <!-- ÁREA PRINCIPAL -->
-    <div class="content">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="mb-3">
-                    {% for category, msg in messages %}
-                        <div class="alert alert-{{ 'success' if category=='success' else 'danger' }}" role="alert">
-                            {{ msg }}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
-
-        {% block content %}{% endblock %}
-    </div>
-
+    
+    {% block extra_js %}{% endblock %}
 </body>
 </html>
