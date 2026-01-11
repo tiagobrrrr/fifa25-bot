@@ -43,7 +43,7 @@
         <div class="match-info">
             <span class="status-badge status-live">● AO VIVO</span>
             <br>
-            <small>{{ match.date.strftime('%d/%m %H:%M') if match.date else 'N/A' }}</small>
+            <small>{{ match.date|sp_time_short }}</small>
         </div>
     </div>
     {% endfor %}

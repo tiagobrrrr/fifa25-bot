@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import os
 import logging
 import requests
+import pytz
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,6 +14,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Timezone de São Paulo
+SP_TZ = pytz.timezone('America/Sao_Paulo')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SESSION_SECRET', 'dev-secret-key')
@@ -29,6 +33,25 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 
 from models import db, Match, Player
 db.init_app(app)
+
+# Filtro de template para converter UTC -> São Paulo
+@app.template_filter('sp_time')
+def sp_time_filter(dt):
+    """Converte datetime UTC para horário de São Paulo"""
+    if dt is None:
+        return 'N/A'
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+    return dt.astimezone(SP_TZ).strftime('%d/%m/%Y %H:%M')
+
+@app.template_filter('sp_time_short')
+def sp_time_short_filter(dt):
+    """Converte datetime UTC para horário de São Paulo (formato curto)"""
+    if dt is None:
+        return 'N/A'
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+    return dt.astimezone(SP_TZ).strftime('%d/%m %H:%M')
 
 last_scan_time = None
 scraper_status = "Aguardando primeira execução"
