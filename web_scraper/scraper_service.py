@@ -2,7 +2,6 @@ from datetime import datetime
 import logging
 import time
 from web_scraper.api_client import FIFA25APIClient
-from models import Match, Player, Tournament, ScraperLog
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +9,14 @@ logger = logging.getLogger(__name__)
 class ScraperService:
     """Serviço responsável por executar o scraping e processar os dados"""
     
-    def __init__(self, db):
+    def __init__(self, db, models):
+        """
+        Args:
+            db: Instância do SQLAlchemy
+            models: Tupla com (Match, Tournament, Player, ScraperLog)
+        """
         self.db = db
+        self.Match, self.Tournament, self.Player, self.ScraperLog = models
         self.api_client = FIFA25APIClient()
     
     def run(self):
@@ -112,7 +117,7 @@ class ScraperService:
                     continue
                 
                 # Verificar se já existe
-                existing = Tournament.query.filter_by(tournament_id=tournament_id).first()
+                existing = self.Tournament.query.filter_by(tournament_id=tournament_id).first()
                 
                 if existing:
                     # Atualizar status se mudou
@@ -121,7 +126,7 @@ class ScraperService:
                         existing.updated_at = datetime.utcnow()
                 else:
                     # Criar novo torneio
-                    new_tournament = Tournament.from_api_data(tournament_data)
+                    new_tournament = self.Tournament.from_api_data(tournament_data)
                     self.db.session.add(new_tournament)
                     new_count += 1
                     
@@ -155,7 +160,7 @@ class ScraperService:
                     continue
                 
                 # Verificar se já existe
-                existing = Match.query.filter_by(match_id=match_id).first()
+                existing = self.Match.query.filter_by(match_id=match_id).first()
                 
                 if existing:
                     # Verificar se houve mudanças
@@ -185,7 +190,7 @@ class ScraperService:
                             self._update_player_stats(match_data)
                 else:
                     # Criar nova partida
-                    new_match = Match.from_api_data(match_data)
+                    new_match = self.Match.from_api_data(match_data)
                     self.db.session.add(new_match)
                     new_count += 1
                     
@@ -222,9 +227,9 @@ class ScraperService:
                 return
             
             # Atualizar jogador 1
-            player1 = Player.query.filter_by(nickname=p1_nickname).first()
+            player1 = self.Player.query.filter_by(nickname=p1_nickname).first()
             if not player1:
-                player1 = Player(nickname=p1_nickname)
+                player1 = self.Player(nickname=p1_nickname)
                 self.db.session.add(player1)
             
             player1.last_seen = datetime.utcnow()
@@ -240,9 +245,9 @@ class ScraperService:
                 player1.draws += 1
             
             # Atualizar jogador 2
-            player2 = Player.query.filter_by(nickname=p2_nickname).first()
+            player2 = self.Player.query.filter_by(nickname=p2_nickname).first()
             if not player2:
-                player2 = Player(nickname=p2_nickname)
+                player2 = self.Player(nickname=p2_nickname)
                 self.db.session.add(player2)
             
             player2.last_seen = datetime.utcnow()
@@ -271,7 +276,7 @@ class ScraperService:
             execution_time (float): Tempo de execução em segundos
         """
         try:
-            log = ScraperLog(
+            log = self.ScraperLog(
                 timestamp=datetime.utcnow(),
                 status=stats['status'],
                 message=stats['message'],
@@ -287,92 +292,3 @@ class ScraperService:
         except Exception as e:
             logger.error(f"❌ Erro ao salvar log: {e}")
             self.db.session.rollback()
-    
-    def cleanup_old_matches(self, days=30):
-        """
-        Remove partidas antigas do banco
-        
-        Args:
-            days (int): Número de dias para manter
-        """
-        try:
-            from datetime import timedelta
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
-            
-            deleted = Match.query.filter(Match.date < cutoff_date).delete()
-            self.db.session.commit()
-            
-            logger.info(f"🗑️  {deleted} partidas antigas removidas (>{days} dias)")
-            
-            return deleted
-            
-        except Exception as e:
-            logger.error(f"❌ Erro ao limpar partidas antigas: {e}")
-            self.db.session.rollback()
-            return 0
-    
-    def get_stats(self):
-        """
-        Retorna estatísticas gerais do banco
-        
-        Returns:
-            dict: Estatísticas
-        """
-        try:
-            stats = {
-                'total_matches': Match.query.count(),
-                'live_matches': Match.query.filter_by(status_id=2).count(),
-                'total_players': Player.query.count(),
-                'total_tournaments': Tournament.query.count(),
-                'last_scrape': None
-            }
-            
-            last_log = ScraperLog.query.order_by(ScraperLog.timestamp.desc()).first()
-            if last_log:
-                stats['last_scrape'] = {
-                    'timestamp': last_log.timestamp.isoformat(),
-                    'status': last_log.status,
-                    'matches_found': last_log.matches_found
-                }
-            
-            return stats
-            
-        except Exception as e:
-            logger.error(f"❌ Erro ao buscar estatísticas: {e}")
-            return {}
-
-
-# Teste standalone
-if __name__ == "__main__":
-    from flask import Flask
-    from flask_sqlalchemy import SQLAlchemy
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # Criar app temporária para teste
-    app = Flask(__name__)
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test_fifa25.db'
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    
-    db = SQLAlchemy(app)
-    
-    with app.app_context():
-        # Criar tabelas
-        db.create_all()
-        
-        # Executar scraper
-        scraper = ScraperService(db)
-        stats = scraper.run()
-        
-        print("\n" + "=" * 80)
-        print("📊 ESTATÍSTICAS FINAIS")
-        print("=" * 80)
-        print(f"Partidas encontradas: {stats['matches_found']}")
-        print(f"Partidas novas: {stats['matches_new']}")
-        print(f"Partidas atualizadas: {stats['matches_updated']}")
-        print(f"Torneios encontrados: {stats['tournaments_found']}")
-        print(f"Status: {stats['status']}")
-        print("=" * 80)

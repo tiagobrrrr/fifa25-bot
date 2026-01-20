@@ -326,7 +326,9 @@ def run_scraper_job():
     with app.app_context():
         try:
             from web_scraper.scraper_service import ScraperService
-            scraper = ScraperService(db)
+            # Passar os models como tupla
+            models = (Match, Tournament, Player, ScraperLog)
+            scraper = ScraperService(db, models)
             scraper.run()
         except Exception as e:
             logger.error(f"Erro ao executar scraper: {e}", exc_info=True)
