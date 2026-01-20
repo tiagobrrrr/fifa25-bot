@@ -1,0 +1,14 @@
+*.md
+*.txt
+!requirements.txt
+.git
+.gitignore
+*.log
+__pycache__
+*.pyc
+.pytest_cache
+.coverage
+htmlcov
+.env
+.venv
+venv

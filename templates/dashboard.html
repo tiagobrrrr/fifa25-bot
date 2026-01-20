@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+
+{% block title %}Dashboard - FIFA25 Bot{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>Total de Partidas</h3>
+        <div class="value">{{ total_matches }}</div>
+    </div>
+    <div class="stat-card">
+        <h3>Partidas ao Vivo</h3>
+        <div class="value">{{ live_matches }}</div>
+    </div>
+    <div class="stat-card">
+        <h3>Total de Jogadores</h3>
+        <div class="value">{{ total_players }}</div>
+    </div>
+    <div class="stat-card">
+        <h3>Última Atualização</h3>
+        <div class="value" style="font-size: 1.2em;">
+            {% if last_scan %}
+                {{ last_scan.timestamp.strftime('%H:%M:%S') }}
+            {% else %}
+                --:--:--
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<h2 style="margin: 30px 0 15px 0; color: #2c3e50;">🏆 Top 10 Jogadores</h2>
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Jogador</th>
+            <th>Partidas</th>
+            <th>Vitórias</th>
+            <th>Empates</th>
+            <th>Derrotas</th>
+            <th>Gols Pró</th>
+            <th>Gols Contra</th>
+            <th>Saldo</th>
+            <th>% Vitórias</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% if top_players %}
+            {% for player in top_players %}
+            <tr>
+                <td><strong>{{ loop.index }}</strong></td>
+                <td><strong>{{ player.nickname }}</strong></td>
+                <td>{{ player.total_matches }}</td>
+                <td style="color: #27ae60;">{{ player.wins }}</td>
+                <td style="color: #f39c12;">{{ player.draws }}</td>
+                <td style="color: #e74c3c;">{{ player.losses }}</td>
+                <td>{{ player.goals_for }}</td>
+                <td>{{ player.goals_against }}</td>
+                <td style="{% if player.goal_difference > 0 %}color: #27ae60;{% elif player.goal_difference < 0 %}color: #e74c3c;{% endif %}">
+                    {{ player.goal_difference }}
+                </td>
+                <td><strong>{{ "%.1f"|format(player.win_rate) }}%</strong></td>
+            </tr>
+            {% endfor %}
+        {% else %}
+            <tr>
+                <td colspan="10" style="text-align: center; padding: 30px; color: #95a5a6;">
+                    Nenhum jogador cadastrado ainda
+                </td>
+            </tr>
+        {% endif %}
+    </tbody>
+</table>
+
+{% if last_scan %}
+<div style="margin-top: 30px; padding: 20px; background: #ecf0f1; border-radius: 8px;">
+    <h3 style="margin-bottom: 10px; color: #2c3e50;">📋 Último Scraping</h3>
+    <p><strong>Status:</strong> 
+        <span class="badge {% if last_scan.status == 'success' %}badge-finished{% else %}badge-live{% endif %}">
+            {{ last_scan.status.upper() }}
+        </span>
+    </p>
+    <p><strong>Partidas encontradas:</strong> {{ last_scan.matches_found }}</p>
+    <p><strong>Novas:</strong> {{ last_scan.matches_new }} | <strong>Atualizadas:</strong> {{ last_scan.matches_updated }}</p>
+    <p><strong>Mensagem:</strong> {{ last_scan.message }}</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Auto-refresh a cada 30 segundos
+    setTimeout(function() {
+        location.reload();
+    }, 30000);
+</script>
+{% endblock %}

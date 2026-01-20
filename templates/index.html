@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FIFA 25 Bot - Dashboard Completa</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container { max-width: 1600px; margin: 0 auto; }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            color: #667eea;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .section-header h2 {
+            color: #667eea;
+            font-size: 1.3em;
+        }
+        
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover { background: #5568d3; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .match-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 12px;
+            transition: transform 0.2s;
+        }
+        
+        .match-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+        .match-card.live { border-left: 4px solid #10b981; }
+        
+        .stadium-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .stadium-name {
+            font-size: 0.85em;
+            color: #667eea;
+            font-weight: bold;
+        }
+        
+        .live-badge {
+            background: #10b981;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.7em;
+            font-weight: bold;
+        }
+        
+        .match-content {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .team { text-align: center; }
+        .team.home { text-align: right; }
+        .team.away { text-align: left; }
+        
+        .player-name {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        
+        .club-name {
+            color: #666;
+            font-size: 0.85em;
+        }
+        
+        .score-box {
+            display: flex;
+            gap: 8px;
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .match-time {
+            font-size: 0.75em;
+            color: #999;
+            margin-top: 8px;
+            text-align: center;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 30px;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .history-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+        
+        .history-item:last-child { border-bottom: none; }
+        
+        .history-item .time {
+            color: #667eea;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .history-item .match {
+            color: #333;
+        }
+        
+        .email-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .email-form input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-content { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚽ FIFA 25 Bot</h1>
+            <p>Monitor Completo de Partidas - ESportsBattle</p>
+        </header>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>🔴 Ao Vivo</h3>
+                <div class="value" id="live-count">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>📊 Total</h3>
+                <div class="value" id="total-count">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>🏟️ Estádios</h3>
+                <div class="value" id="stadiums-count">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>📝 Histórico</h3>
+                <div class="value" id="history-count">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>🕐 Horário BR</h3>
+                <div class="value" style="font-size: 1.2em;" id="br-time">--:--</div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <!-- Partidas ao Vivo -->
+            <div class="section">
+                <div class="section-header">
+                    <h2>🎮 Partidas ao Vivo</h2>
+                    <button class="btn" onclick="loadMatches()">🔄 Atualizar</button>
+                </div>
+                <div id="matches-list">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <span>Carregando partidas...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Histórico e Email -->
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <!-- Enviar por Email -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2>📧 Enviar Planilha</h2>
+                    </div>
+                    <div class="email-form">
+                        <input type="email" id="email-input" placeholder="seu@email.com">
+                        <button class="btn" onclick="sendEmail()" id="send-btn">Enviar</button>
+                    </div>
+                    <div id="email-status" style="font-size: 0.85em; color: #666;"></div>
+                </div>
+                
+                <!-- Histórico -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2>📜 Histórico Recente</h2>
+                        <button class="btn" onclick="clearHistory()" style="font-size: 0.8em; padding: 6px 12px;">Limpar</button>
+                    </div>
+                    <div id="history-list" style="max-height: 400px; overflow-y: auto;">
+                        <div class="no-data">Nenhum histórico ainda</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p id="footer-update">Última atualização: --:--:--</p>
+            <p style="margin-top: 5px; font-size: 0.85em;">Auto-atualização a cada 15 segundos</p>
+        </div>
+    </div>
+    
+    <script>
+        let matchHistory = JSON.parse(localStorage.getItem('matchHistory') || '[]');
+        
+        // Atualiza relógio
+        function updateClock() {
+            const now = new Date();
+            const brTime = now.toLocaleTimeString('pt-BR', {
+                timeZone: 'America/Sao_Paulo',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            document.getElementById('br-time').textContent = brTime;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+        
+        // Carrega partidas
+        async function loadMatches() {
+            try {
+                const response = await fetch('/api/matches/live');
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateStats(data);
+                    displayMatches(data.matches);
+                    updateTimestamp(data.timestamp);
+                    addToHistory(data.matches);
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                document.getElementById('matches-list').innerHTML = 
+                    '<div class="no-data">❌ Erro ao carregar. Tente novamente.</div>';
+            }
+        }
+        
+        // Atualiza estatísticas
+        function updateStats(data) {
+            const matches = data.matches || [];
+            const liveMatches = matches.filter(m => m.is_live);
+            const stadiums = new Set(matches.map(m => m.stadium || 'Unknown'));
+            
+            document.getElementById('live-count').textContent = liveMatches.length;
+            document.getElementById('total-count').textContent = matches.length;
+            document.getElementById('stadiums-count').textContent = stadiums.size;
+        }
+        
+        // Exibe partidas
+        function displayMatches(matches) {
+            const container = document.getElementById('matches-list');
+            
+            if (!matches || matches.length === 0) {
+                container.innerHTML = '<div class="no-data">😴 Nenhuma partida no momento</div>';
+                return;
+            }
+            
+            let html = '';
+            matches.forEach(match => {
+                const time = match.start_time ? new Date(match.start_time).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }) : '';
+                
+                html += `
+                    <div class="match-card ${match.is_live ? 'live' : ''}">
+                        <div class="stadium-header">
+                            <div class="stadium-name">
+                                🏟️ ${match.stadium || 'Unknown'}
+                                ${match.tournament ? `<span style="color:#999;font-weight:normal;"> • ${match.tournament}</span>` : ''}
+                            </div>
+                            ${match.is_live ? '<span class="live-badge">🔴 AO VIVO</span>' : ''}
+                        </div>
+                        <div class="match-content">
+                            <div class="team home">
+                                <div class="player-name">${match.home_player || 'Desconhecido'}</div>
+                                <div class="club-name">${match.home_club || 'N/A'}</div>
+                            </div>
+                            <div class="score-box">
+                                <span>${match.home_score || 0}</span>
+                                <span style="color:#ccc;">×</span>
+                                <span>${match.away_score || 0}</span>
+                            </div>
+                            <div class="team away">
+                                <div class="player-name">${match.away_player || 'Desconhecido'}</div>
+                                <div class="club-name">${match.away_club || 'N/A'}</div>
+                            </div>
+                        </div>
+                        ${time ? `<div class="match-time">⏰ ${time}</div>` : ''}
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        // Adiciona ao histórico
+        function addToHistory(matches) {
+            if (!matches || matches.length === 0) return;
+            
+            const now = new Date().toLocaleTimeString('pt-BR');
+            matches.forEach(match => {
+                if (match.is_live) {
+                    const historyItem = {
+                        time: now,
+                        match: `${match.home_player} (${match.home_club}) ${match.home_score}-${match.away_score} (${match.away_club}) ${match.away_player}`,
+                        stadium: match.stadium
+                    };
+                    matchHistory.unshift(historyItem);
+                }
+            });
+            
+            // Mantém apenas últimos 50
+            matchHistory = matchHistory.slice(0, 50);
+            localStorage.setItem('matchHistory', JSON.stringify(matchHistory));
+            displayHistory();
+        }
+        
+        // Exibe histórico
+        function displayHistory() {
+            const container = document.getElementById('history-list');
+            document.getElementById('history-count').textContent = matchHistory.length;
+            
+            if (matchHistory.length === 0) {
+                container.innerHTML = '<div class="no-data">Nenhum histórico</div>';
+                return;
+            }
+            
+            const html = matchHistory.map(item => `
+                <div class="history-item">
+                    <div class="time">${item.time} • 🏟️ ${item.stadium}</div>
+                    <div class="match">${item.match}</div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = html;
+        }
+        
+        // Limpa histórico
+        function clearHistory() {
+            if (confirm('Limpar todo o histórico?')) {
+                matchHistory = [];
+                localStorage.removeItem('matchHistory');
+                displayHistory();
+            }
+        }
+        
+        // Envia email
+        async function sendEmail() {
+            const email = document.getElementById('email-input').value;
+            const btn = document.getElementById('send-btn');
+            const status = document.getElementById('email-status');
+            
+            if (!email || !email.includes('@')) {
+                status.textContent = '⚠️ Digite um email válido';
+                status.style.color = '#e74c3c';
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            status.textContent = '📧 Enviando planilha...';
+            status.style.color = '#3498db';
+            
+            try {
+                const response = await fetch('/api/send-report', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    status.textContent = '✅ Planilha enviada com sucesso!';
+                    status.style.color = '#10b981';
+                    document.getElementById('email-input').value = '';
+                } else {
+                    status.textContent = '❌ Erro: ' + (data.error || 'Falha ao enviar');
+                    status.style.color = '#e74c3c';
+                }
+            } catch (error) {
+                status.textContent = '❌ Erro ao enviar. Tente novamente.';
+                status.style.color = '#e74c3c';
+            }
+            
+            btn.disabled = false;
+            btn.textContent = 'Enviar';
+        }
+        
+        // Atualiza timestamp
+        function updateTimestamp(timestamp) {
+            if (!timestamp) return;
+            const date = new Date(timestamp);
+            const timeStr = date.toLocaleTimeString('pt-BR');
+            document.getElementById('footer-update').textContent = 
+                `Última atualização: ${timeStr}`;
+        }
+        
+        // Auto-atualiza
+        setInterval(loadMatches, 15000);
+        
+        // Inicializa
+        loadMatches();
+        displayHistory();
+    </script>
+</body>
+</html>

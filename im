@@ -1,0 +1,7 @@
+[33mcommit 27131dd29f2e80e9bd7763a071bba4c1590727bd[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: tiago andrade <tiagohhhh736@gmail.com>
+Date:   Sat Jan 17 13:31:40 2026 -0300
+
+    Fix: Scraper usando nickname e token_international
+
+web_scraper/scraper.py
