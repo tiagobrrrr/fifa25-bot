@@ -4,7 +4,6 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 import os
 import logging
-from logging.handlers import RotatingFileHandler
 
 # Configuração de logging
 logging.basicConfig(
@@ -34,15 +33,9 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 # Inicialização do banco de dados
 db = SQLAlchemy(app)
 
-# Import dos models (depois do db ser criado)
-from models import Match, Player, Tournament, ScraperLog
-
-# Import do scraper service
-from web_scraper.scraper_service import ScraperService
-
-# Variáveis globais
-scraper_service = None
-scheduler = None
+# Import e criação dos models DEPOIS do db ser criado
+from models import create_models
+Match, Tournament, Player, ScraperLog = create_models(db)
 
 # ==================== ROTAS WEB ====================
 
@@ -307,20 +300,46 @@ def api_scraper_status():
         return jsonify({'error': str(e)}), 500
 
 
-# ==================== INICIALIZAÇÃO ====================
+# ==================== FUNÇÕES AUXILIARES ====================
+
+def cleanup_old_data():
+    """Limpa dados antigos do banco"""
+    with app.app_context():
+        try:
+            # Remover partidas com mais de 30 dias
+            cutoff_date = datetime.utcnow() - timedelta(days=30)
+            deleted = Match.query.filter(Match.date < cutoff_date).delete()
+            
+            # Remover logs com mais de 7 dias
+            log_cutoff = datetime.utcnow() - timedelta(days=7)
+            deleted_logs = ScraperLog.query.filter(ScraperLog.timestamp < log_cutoff).delete()
+            
+            db.session.commit()
+            logger.info(f"🗑️  Limpeza: {deleted} partidas e {deleted_logs} logs removidos")
+        except Exception as e:
+            logger.error(f"Erro na limpeza: {e}")
+            db.session.rollback()
+
+
+def run_scraper_job():
+    """Executa o scraper (chamado pelo scheduler)"""
+    with app.app_context():
+        try:
+            from web_scraper.scraper_service import ScraperService
+            scraper = ScraperService(db)
+            scraper.run()
+        except Exception as e:
+            logger.error(f"Erro ao executar scraper: {e}", exc_info=True)
+
+
+# ==================== INICIALIZAÇÃO DO SCHEDULER ====================
 
 def init_scheduler():
     """Inicializa o scheduler do APScheduler"""
-    global scraper_service, scheduler
-    
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
     import atexit
     
-    # Inicializar scraper service
-    scraper_service = ScraperService(db)
-    
-    # Criar scheduler
     scheduler = BackgroundScheduler()
     
     # Intervalo de scraping (padrão: 30 segundos)
@@ -329,7 +348,7 @@ def init_scheduler():
     
     if run_scraper:
         scheduler.add_job(
-            func=scraper_service.run,
+            func=run_scraper_job,  # Função wrapper com contexto
             trigger=IntervalTrigger(seconds=scan_interval),
             id='run_scraper',
             name='Scraper de partidas FIFA25',
@@ -345,7 +364,7 @@ def init_scheduler():
         trigger='cron',
         day_of_week='sun',
         hour=3,
-        id='weekly_report',
+        id='weekly_cleanup',
         name='Limpeza semanal',
         replace_existing=True
     )
@@ -355,39 +374,27 @@ def init_scheduler():
     
     # Shutdown ao fechar
     atexit.register(lambda: scheduler.shutdown())
-
-
-def cleanup_old_data():
-    """Limpa dados antigos do banco"""
-    try:
-        # Remover partidas com mais de 30 dias
-        cutoff_date = datetime.utcnow() - timedelta(days=30)
-        deleted = Match.query.filter(Match.date < cutoff_date).delete()
-        
-        # Remover logs com mais de 7 dias
-        log_cutoff = datetime.utcnow() - timedelta(days=7)
-        deleted_logs = ScraperLog.query.filter(ScraperLog.timestamp < log_cutoff).delete()
-        
-        db.session.commit()
-        logger.info(f"🗑️  Limpeza: {deleted} partidas e {deleted_logs} logs removidos")
-    except Exception as e:
-        logger.error(f"Erro na limpeza: {e}")
-        db.session.rollback()
+    
+    return scheduler
 
 
 # ==================== INICIALIZAÇÃO DO APP ====================
 
+# Criar tabelas e iniciar scheduler
 with app.app_context():
     try:
         # Criar tabelas
         db.create_all()
         logger.info("✅ Banco de dados inicializado")
         
-        # Iniciar scheduler
-        init_scheduler()
-        
     except Exception as e:
-        logger.error(f"❌ Erro na inicialização: {e}", exc_info=True)
+        logger.error(f"❌ Erro na inicialização do banco: {e}", exc_info=True)
+
+# Iniciar scheduler (fora do contexto)
+try:
+    scheduler = init_scheduler()
+except Exception as e:
+    logger.error(f"❌ Erro ao iniciar scheduler: {e}", exc_info=True)
 
 
 if __name__ == '__main__':
