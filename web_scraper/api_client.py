@@ -94,18 +94,20 @@ class FIFA25APIClient:
             logger.error(f"❌ Erro ao buscar torneio {tournament_id}: {e}")
             return None
     
-    def scan_recent_tournament_ids(self, start_id=233800, count=200):
+    def scan_recent_tournament_ids(self, start_id=233900, count=50):
         """
         Escaneia IDs de torneios recentes para encontrar partidas
-        Útil quando a API /locations não retorna torneios ativos
+        OTIMIZADO: Reduzido para 50 torneios e para após encontrar 3
         """
         logger.info(f"🔍 Escaneando torneios de {start_id} até {start_id + count}...")
         
         found_tournaments = []
+        checked = 0
         
         for tournament_id in range(start_id, start_id + count):
             try:
-                time.sleep(0.3)  # Rate limiting
+                time.sleep(0.2)  # Rate limiting reduzido (200ms)
+                checked += 1
                 
                 tournament = self.get_tournament(tournament_id)
                 
@@ -120,16 +122,21 @@ class FIFA25APIClient:
                         if active_matches or recent_finished:
                             found_tournaments.append(tournament)
                             logger.info(f"   ✅ Torneio {tournament_id}: {len(active_matches)} ativas, {len(recent_finished)} finalizadas")
+                            
+                            # OTIMIZAÇÃO: Parar após encontrar 3 torneios
+                            if len(found_tournaments) >= 3:
+                                logger.info(f"   🎯 Encontrados {len(found_tournaments)} torneios, parando scan")
+                                break
                 
-                # Log a cada 20 torneios
-                if (tournament_id - start_id) % 20 == 0:
-                    logger.debug(f"   📊 Escaneados {tournament_id - start_id}/{count} torneios...")
+                # Log a cada 10 torneios (reduzido de 20)
+                if checked % 10 == 0:
+                    logger.debug(f"   📊 Escaneados {checked}/{count} torneios, {len(found_tournaments)} com partidas")
                     
             except Exception as e:
                 logger.debug(f"   ⚠️  Erro ao escanear torneio {tournament_id}: {e}")
                 continue
         
-        logger.info(f"🎯 Escaneamento completo: {len(found_tournaments)} torneios com partidas encontrados")
+        logger.info(f"🎯 Scan finalizado: {checked} torneios verificados, {len(found_tournaments)} com partidas")
         return found_tournaments
     
     def get_all_active_matches(self, delay_between_requests=0.5, fallback_scan=True):
@@ -197,7 +204,7 @@ class FIFA25APIClient:
                 
                 found_tournaments = self.scan_recent_tournament_ids(
                     start_id=base_id,
-                    count=100  # Escanear últimos 100 IDs
+                    count=50  # Reduzido para 50 IDs (mais rápido)
                 )
                 
                 if found_tournaments:

@@ -352,8 +352,8 @@ def init_scheduler():
     
     scheduler = BackgroundScheduler()
     
-    # Intervalo de scraping (padrão: 30 segundos)
-    scan_interval = int(os.environ.get('SCAN_INTERVAL', 30))
+    # Intervalo de scraping (padrão: 60 segundos - aumentado para acomodar scan)
+    scan_interval = int(os.environ.get('SCAN_INTERVAL', 60))
     run_scraper = os.environ.get('RUN_SCRAPER', 'true').lower() == 'true'
     
     if run_scraper:
