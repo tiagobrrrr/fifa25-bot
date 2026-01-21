@@ -21,7 +21,6 @@ def retry_on_failure(max_retries=3, delay=2, backoff=2):
                         raise
                     
                     logger.warning(f"⚠️  Tentativa {attempt + 1}/{max_retries} falhou: {e}")
-                    logger.warning(f"   Aguardando {current_delay}s antes de tentar novamente...")
                     time.sleep(current_delay)
                     current_delay *= backoff
                 except Exception as e:
@@ -49,7 +48,7 @@ class FIFA25APIClient:
         
         self._locations_cache = None
         self._cache_time = None
-        self._cache_duration = timedelta(minutes=5)
+        self._cache_duration = timedelta(minutes=2)  # Cache menor (2 min)
     
     @retry_on_failure(max_retries=3, delay=2)
     def get_locations(self, use_cache=True):
@@ -61,8 +60,6 @@ class FIFA25APIClient:
         
         try:
             url = f"{self.BASE_URL}/locations"
-            logger.debug(f"🔗 GET {url}")
-            
             response = self.session.get(url, timeout=10)
             response.raise_for_status()
             
@@ -83,19 +80,13 @@ class FIFA25APIClient:
         """Busca dados de um torneio específico"""
         try:
             url = f"{self.BASE_URL}/tournaments/{tournament_id}"
-            logger.debug(f"🔗 GET {url}")
-            
             response = self.session.get(url, timeout=10)
             response.raise_for_status()
             
             data = response.json()
             
-            # Verificar se é uma lista
             if isinstance(data, list) and len(data) > 0:
                 data = data[0]
-            
-            # DEBUG: Log completo dos dados
-            logger.debug(f"📦 Dados do torneio {tournament_id}: {data.keys() if isinstance(data, dict) else 'não é dict'}")
             
             return data
             
@@ -103,13 +94,58 @@ class FIFA25APIClient:
             logger.error(f"❌ Erro ao buscar torneio {tournament_id}: {e}")
             return None
     
-    def get_all_active_matches(self, delay_between_requests=0.5):
-        """Coleta todas as partidas ativas de todos os torneios"""
+    def scan_recent_tournament_ids(self, start_id=233800, count=200):
+        """
+        Escaneia IDs de torneios recentes para encontrar partidas
+        Útil quando a API /locations não retorna torneios ativos
+        """
+        logger.info(f"🔍 Escaneando torneios de {start_id} até {start_id + count}...")
+        
+        found_tournaments = []
+        
+        for tournament_id in range(start_id, start_id + count):
+            try:
+                time.sleep(0.3)  # Rate limiting
+                
+                tournament = self.get_tournament(tournament_id)
+                
+                if tournament and isinstance(tournament, dict):
+                    matches = tournament.get('matches', [])
+                    
+                    if matches:
+                        # Verificar se há partidas ativas ou finalizadas recentemente
+                        active_matches = [m for m in matches if m.get('status_id') in [1, 2]]
+                        recent_finished = [m for m in matches if m.get('status_id') == 3]
+                        
+                        if active_matches or recent_finished:
+                            found_tournaments.append(tournament)
+                            logger.info(f"   ✅ Torneio {tournament_id}: {len(active_matches)} ativas, {len(recent_finished)} finalizadas")
+                
+                # Log a cada 20 torneios
+                if (tournament_id - start_id) % 20 == 0:
+                    logger.debug(f"   📊 Escaneados {tournament_id - start_id}/{count} torneios...")
+                    
+            except Exception as e:
+                logger.debug(f"   ⚠️  Erro ao escanear torneio {tournament_id}: {e}")
+                continue
+        
+        logger.info(f"🎯 Escaneamento completo: {len(found_tournaments)} torneios com partidas encontrados")
+        return found_tournaments
+    
+    def get_all_active_matches(self, delay_between_requests=0.5, fallback_scan=True):
+        """
+        Coleta todas as partidas ativas de todos os torneios
+        
+        Args:
+            delay_between_requests: Delay entre requisições
+            fallback_scan: Se True, faz scan de IDs quando locations não retornam torneios
+        """
         all_matches = []
         all_tournaments = []
         
         try:
-            locations = self.get_locations()
+            # MÉTODO 1: Buscar via locations (método oficial)
+            locations = self.get_locations(use_cache=False)  # Sempre buscar fresh
             
             if not locations:
                 logger.warning("⚠️  Nenhuma location encontrada")
@@ -117,7 +153,8 @@ class FIFA25APIClient:
             
             logger.info(f"📍 Encontradas {len(locations)} locations")
             
-            # DEBUG: Mostrar detalhes de cada location
+            has_active_tournaments = False
+            
             for location in locations:
                 location_name = location.get('token', 'Unknown')
                 tournaments = location.get('tournaments', [])
@@ -125,52 +162,52 @@ class FIFA25APIClient:
                 
                 logger.info(f"   🏟️  {location_name}: {len(tournaments)} torneio(s), {match_count} partida(s)")
                 
-                # Se não há torneios, pular
-                if not tournaments:
-                    logger.debug(f"      ⚠️  Sem torneios ativos em {location_name}")
-                    continue
-                
-                for tournament_id in tournaments:
-                    if delay_between_requests > 0:
-                        time.sleep(delay_between_requests)
+                if tournaments:
+                    has_active_tournaments = True
                     
-                    logger.info(f"      🔍 Buscando torneio {tournament_id}...")
-                    
-                    tournament_data = self.get_tournament(tournament_id)
-                    
-                    if not tournament_data:
-                        logger.warning(f"      ⚠️  Torneio {tournament_id} não retornou dados")
-                        continue
-                    
-                    # DEBUG: Verificar estrutura do torneio
-                    if isinstance(tournament_data, dict):
-                        logger.debug(f"      📊 Keys do torneio: {list(tournament_data.keys())}")
+                    for tournament_id in tournaments:
+                        if delay_between_requests > 0:
+                            time.sleep(delay_between_requests)
                         
-                        # Verificar se tem matches
-                        if 'matches' in tournament_data:
-                            matches = tournament_data['matches']
-                            logger.info(f"      ✅ Encontradas {len(matches)} partidas no torneio")
-                        else:
-                            logger.warning(f"      ⚠️  Torneio não tem key 'matches'")
-                            logger.debug(f"      📦 Estrutura: {tournament_data}")
-                            matches = []
-                    else:
-                        logger.warning(f"      ⚠️  tournament_data não é dict: {type(tournament_data)}")
-                        continue
+                        logger.info(f"      🔍 Buscando torneio {tournament_id}...")
+                        
+                        tournament_data = self.get_tournament(tournament_id)
+                        
+                        if not tournament_data:
+                            continue
+                        
+                        matches = tournament_data.get('matches', [])
+                        
+                        if matches:
+                            all_tournaments.append(tournament_data)
+                            all_matches.extend(matches)
+                            
+                            active = len([m for m in matches if m.get('status_id') in [1, 2]])
+                            finished = len([m for m in matches if m.get('status_id') == 3])
+                            
+                            logger.info(f"      ✅ {len(matches)} partidas: {active} ativas, {finished} finalizadas")
+            
+            # MÉTODO 2: Fallback - escanear IDs de torneios recentes
+            if not has_active_tournaments and fallback_scan:
+                logger.warning("⚠️  Nenhum torneio retornado por locations, ativando scan de IDs...")
+                
+                # Calcular ID base (torneios são criados diariamente)
+                # Estimativa: ~50-100 torneios por dia, IDs sequenciais
+                base_id = 233900  # Ajuste conforme necessário
+                
+                found_tournaments = self.scan_recent_tournament_ids(
+                    start_id=base_id,
+                    count=100  # Escanear últimos 100 IDs
+                )
+                
+                if found_tournaments:
+                    all_tournaments.extend(found_tournaments)
                     
-                    all_tournaments.append(tournament_data)
-                    
-                    if not matches:
-                        logger.debug(f"      ℹ️  Torneio {tournament_id}: sem partidas")
-                        continue
-                    
-                    # Adicionar TODAS as partidas (não filtrar por status)
-                    all_matches.extend(matches)
-                    
-                    active_count = len([m for m in matches if m.get('status_id') in [1, 2]])
-                    finished_count = len([m for m in matches if m.get('status_id') == 3])
-                    
-                    logger.info(f"      ✅ Torneio {tournament_id}: {active_count} ativa(s), {finished_count} finalizada(s)")
+                    for tournament in found_tournaments:
+                        matches = tournament.get('matches', [])
+                        all_matches.extend(matches)
+                else:
+                    logger.warning("⚠️  Scan de IDs não encontrou torneios com partidas")
             
             logger.info(f"\n📊 Total coletado: {len(all_matches)} partidas de {len(all_tournaments)} torneios")
             
