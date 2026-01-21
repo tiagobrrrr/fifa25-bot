@@ -4,6 +4,7 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 import os
 import logging
+import pytz
 
 # Configuração de logging
 logging.basicConfig(
@@ -19,6 +20,9 @@ CORS(app)
 # Configurações
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key-change-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///fifa25.db')
+
+# Timezone de Brasília
+BRAZIL_TZ = pytz.timezone('America/Sao_Paulo')
 
 # Fix para Heroku/Render (postgres:// -> postgresql://)
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
@@ -48,8 +52,12 @@ def index():
         total_players = Player.query.count()
         live_matches = Match.query.filter_by(status_id=2).count()
         
-        # Última execução do scraper
+        # Última execução do scraper (converter para horário de Brasília)
         last_scan = ScraperLog.query.order_by(ScraperLog.timestamp.desc()).first()
+        if last_scan and last_scan.timestamp:
+            # Converter UTC para Brasília
+            utc_time = last_scan.timestamp.replace(tzinfo=pytz.UTC)
+            last_scan.timestamp = utc_time.astimezone(BRAZIL_TZ)
         
         # Top 10 jogadores
         top_players = Player.query.filter(

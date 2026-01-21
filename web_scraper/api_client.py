@@ -23,7 +23,7 @@ def retry_on_failure(max_retries=3, delay=2, backoff=2):
                     logger.warning(f"⚠️  Tentativa {attempt + 1}/{max_retries} falhou: {e}")
                     logger.warning(f"   Aguardando {current_delay}s antes de tentar novamente...")
                     time.sleep(current_delay)
-                    current_delay *= backoff  # Backoff exponencial
+                    current_delay *= backoff
                 except Exception as e:
                     logger.error(f"❌ Erro inesperado: {e}")
                     raise
@@ -47,20 +47,13 @@ class FIFA25APIClient:
             'Origin': 'https://football.esportsbattle.com'
         })
         
-        # Cache para locations (5 minutos)
         self._locations_cache = None
         self._cache_time = None
         self._cache_duration = timedelta(minutes=5)
     
     @retry_on_failure(max_retries=3, delay=2)
     def get_locations(self, use_cache=True):
-        """
-        Busca todas as locations (estádios) disponíveis
-        
-        Returns:
-            list: Lista de dicionários com dados das locations
-        """
-        # Verificar cache
+        """Busca todas as locations (estádios) disponíveis"""
         if use_cache and self._locations_cache is not None:
             if self._cache_time and datetime.now() - self._cache_time < self._cache_duration:
                 logger.debug("📦 Usando cache de locations")
@@ -75,34 +68,19 @@ class FIFA25APIClient:
             
             data = response.json()
             
-            # Atualizar cache
             self._locations_cache = data
             self._cache_time = datetime.now()
             
             logger.info(f"✅ {len(data)} locations encontradas")
             return data
             
-        except requests.exceptions.Timeout:
-            logger.error("❌ Timeout ao buscar locations")
-            return []
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Erro HTTP ao buscar locations: {e}")
-            return []
         except Exception as e:
-            logger.error(f"❌ Erro inesperado ao buscar locations: {e}")
+            logger.error(f"❌ Erro ao buscar locations: {e}")
             return []
     
     @retry_on_failure(max_retries=3, delay=2)
     def get_tournament(self, tournament_id):
-        """
-        Busca dados de um torneio específico
-        
-        Args:
-            tournament_id (int): ID do torneio
-            
-        Returns:
-            dict: Dados do torneio incluindo partidas
-        """
+        """Busca dados de um torneio específico"""
         try:
             url = f"{self.BASE_URL}/tournaments/{tournament_id}"
             logger.debug(f"🔗 GET {url}")
@@ -112,67 +90,25 @@ class FIFA25APIClient:
             
             data = response.json()
             
-            # Verificar se é uma lista (formato antigo da API)
+            # Verificar se é uma lista
             if isinstance(data, list) and len(data) > 0:
                 data = data[0]
             
+            # DEBUG: Log completo dos dados
+            logger.debug(f"📦 Dados do torneio {tournament_id}: {data.keys() if isinstance(data, dict) else 'não é dict'}")
+            
             return data
             
-        except requests.exceptions.Timeout:
-            logger.error(f"❌ Timeout ao buscar torneio {tournament_id}")
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Erro HTTP ao buscar torneio {tournament_id}: {e}")
-            return None
         except Exception as e:
-            logger.error(f"❌ Erro inesperado ao buscar torneio {tournament_id}: {e}")
-            return None
-    
-    @retry_on_failure(max_retries=3, delay=2)
-    def get_tournament_results(self, tournament_id):
-        """
-        Busca resultados/classificação de um torneio
-        
-        Args:
-            tournament_id (int): ID do torneio
-            
-        Returns:
-            dict: Dados de resultados e classificação
-        """
-        try:
-            url = f"{self.BASE_URL}/tournaments/{tournament_id}/results"
-            logger.debug(f"🔗 GET {url}")
-            
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
-            
-            return response.json()
-            
-        except requests.exceptions.Timeout:
-            logger.error(f"❌ Timeout ao buscar resultados do torneio {tournament_id}")
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Erro HTTP ao buscar resultados: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"❌ Erro inesperado ao buscar resultados: {e}")
+            logger.error(f"❌ Erro ao buscar torneio {tournament_id}: {e}")
             return None
     
     def get_all_active_matches(self, delay_between_requests=0.5):
-        """
-        Coleta todas as partidas ativas de todos os torneios
-        
-        Args:
-            delay_between_requests (float): Delay em segundos entre requisições
-            
-        Returns:
-            list: Lista de partidas ativas
-        """
+        """Coleta todas as partidas ativas de todos os torneios"""
         all_matches = []
         all_tournaments = []
         
         try:
-            # 1. Buscar todas as locations
             locations = self.get_locations()
             
             if not locations:
@@ -181,57 +117,60 @@ class FIFA25APIClient:
             
             logger.info(f"📍 Encontradas {len(locations)} locations")
             
-            # 2. Para cada location, buscar seus torneios
+            # DEBUG: Mostrar detalhes de cada location
             for location in locations:
                 location_name = location.get('token', 'Unknown')
                 tournaments = location.get('tournaments', [])
                 match_count = location.get('matchCount', 0)
                 
-                if not tournaments:
-                    logger.debug(f"   🏟️  {location_name}: sem torneios ativos")
-                    continue
-                
                 logger.info(f"   🏟️  {location_name}: {len(tournaments)} torneio(s), {match_count} partida(s)")
                 
+                # Se não há torneios, pular
+                if not tournaments:
+                    logger.debug(f"      ⚠️  Sem torneios ativos em {location_name}")
+                    continue
+                
                 for tournament_id in tournaments:
-                    # Delay para não sobrecarregar a API
                     if delay_between_requests > 0:
                         time.sleep(delay_between_requests)
                     
-                    logger.debug(f"      🔍 Buscando torneio {tournament_id}...")
+                    logger.info(f"      🔍 Buscando torneio {tournament_id}...")
                     
-                    # Buscar dados do torneio
                     tournament_data = self.get_tournament(tournament_id)
                     
                     if not tournament_data:
                         logger.warning(f"      ⚠️  Torneio {tournament_id} não retornou dados")
                         continue
                     
-                    # Adicionar torneio à lista
-                    all_tournaments.append(tournament_data)
+                    # DEBUG: Verificar estrutura do torneio
+                    if isinstance(tournament_data, dict):
+                        logger.debug(f"      📊 Keys do torneio: {list(tournament_data.keys())}")
+                        
+                        # Verificar se tem matches
+                        if 'matches' in tournament_data:
+                            matches = tournament_data['matches']
+                            logger.info(f"      ✅ Encontradas {len(matches)} partidas no torneio")
+                        else:
+                            logger.warning(f"      ⚠️  Torneio não tem key 'matches'")
+                            logger.debug(f"      📦 Estrutura: {tournament_data}")
+                            matches = []
+                    else:
+                        logger.warning(f"      ⚠️  tournament_data não é dict: {type(tournament_data)}")
+                        continue
                     
-                    # Extrair partidas
-                    matches = tournament_data.get('matches', [])
+                    all_tournaments.append(tournament_data)
                     
                     if not matches:
                         logger.debug(f"      ℹ️  Torneio {tournament_id}: sem partidas")
                         continue
                     
-                    # Filtrar apenas partidas ativas ou agendadas (status_id = 1 ou 2)
-                    active_matches = [
-                        m for m in matches 
-                        if m.get('status_id') in [1, 2]
-                    ]
-                    
-                    finished_matches = [
-                        m for m in matches
-                        if m.get('status_id') == 3
-                    ]
-                    
-                    # Adicionar todas as partidas (ativas e finalizadas)
+                    # Adicionar TODAS as partidas (não filtrar por status)
                     all_matches.extend(matches)
                     
-                    logger.info(f"      ✅ Torneio {tournament_id}: {len(active_matches)} ativa(s), {len(finished_matches)} finalizada(s)")
+                    active_count = len([m for m in matches if m.get('status_id') in [1, 2]])
+                    finished_count = len([m for m in matches if m.get('status_id') == 3])
+                    
+                    logger.info(f"      ✅ Torneio {tournament_id}: {active_count} ativa(s), {finished_count} finalizada(s)")
             
             logger.info(f"\n📊 Total coletado: {len(all_matches)} partidas de {len(all_tournaments)} torneios")
             
@@ -245,52 +184,3 @@ class FIFA25APIClient:
         """Fecha a sessão HTTP"""
         self.session.close()
         logger.debug("🔒 Sessão HTTP fechada")
-
-
-# Teste standalone
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    print("=" * 80)
-    print("🎮 Testando FIFA25 API Client")
-    print("=" * 80)
-    
-    client = FIFA25APIClient()
-    
-    try:
-        # Testar locations
-        print("\n1️⃣ Buscando locations...")
-        locations = client.get_locations()
-        print(f"   ✅ {len(locations)} locations encontradas\n")
-        
-        # Testar torneios
-        if locations:
-            for loc in locations[:3]:  # Apenas primeiras 3
-                tournaments = loc.get('tournaments', [])
-                if tournaments:
-                    print(f"\n2️⃣ Testando location: {loc.get('token')}")
-                    tournament_id = tournaments[0]
-                    tournament = client.get_tournament(tournament_id)
-                    
-                    if tournament:
-                        matches = tournament.get('matches', [])
-                        print(f"   ✅ Torneio {tournament_id}: {len(matches)} partidas")
-                    
-                    break
-        
-        # Testar coleta completa
-        print("\n3️⃣ Coletando todas as partidas...")
-        matches, tournaments = client.get_all_active_matches()
-        print(f"   ✅ {len(matches)} partidas coletadas de {len(tournaments)} torneios")
-        
-        print("\n" + "=" * 80)
-        print("✅ Teste concluído com sucesso!")
-        print("=" * 80)
-        
-    except Exception as e:
-        print(f"\n❌ Erro no teste: {e}")
-    finally:
-        client.close()
