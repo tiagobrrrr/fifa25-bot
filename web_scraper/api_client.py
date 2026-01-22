@@ -94,28 +94,30 @@ class FIFA25APIClient:
             logger.error(f"❌ Erro ao buscar torneio {tournament_id}: {e}")
             return None
     
-    def scan_recent_tournament_ids(self, start_id=233900, count=50):
+    def scan_recent_tournament_ids(self, start_id=233900, count=100):
         """
         Escaneia IDs de torneios recentes para encontrar partidas
-        OTIMIZADO: Reduzido para 50 torneios e para após encontrar 3
+        OTIMIZADO: Para após encontrar 5 torneios
         """
         logger.info(f"🔍 Escaneando torneios de {start_id} até {start_id + count}...")
         
         found_tournaments = []
         checked = 0
+        not_found = 0
+        max_consecutive_not_found = 20  # Parar após 20 IDs consecutivos não encontrados
         
         for tournament_id in range(start_id, start_id + count):
             try:
-                time.sleep(0.2)  # Rate limiting reduzido (200ms)
+                time.sleep(0.15)  # Rate limiting otimizado (150ms)
                 checked += 1
                 
                 tournament = self.get_tournament(tournament_id)
                 
                 if tournament and isinstance(tournament, dict):
                     matches = tournament.get('matches', [])
+                    not_found = 0  # Reset contador
                     
                     if matches:
-                        # Verificar se há partidas ativas ou finalizadas recentemente
                         active_matches = [m for m in matches if m.get('status_id') in [1, 2]]
                         recent_finished = [m for m in matches if m.get('status_id') == 3]
                         
@@ -123,20 +125,27 @@ class FIFA25APIClient:
                             found_tournaments.append(tournament)
                             logger.info(f"   ✅ Torneio {tournament_id}: {len(active_matches)} ativas, {len(recent_finished)} finalizadas")
                             
-                            # OTIMIZAÇÃO: Parar após encontrar 3 torneios
-                            if len(found_tournaments) >= 3:
+                            # OTIMIZAÇÃO: Parar após encontrar 5 torneios
+                            if len(found_tournaments) >= 5:
                                 logger.info(f"   🎯 Encontrados {len(found_tournaments)} torneios, parando scan")
                                 break
+                else:
+                    not_found += 1
+                    # Se encontrar 20 IDs consecutivos sem torneio, provavelmente passou do range
+                    if not_found >= max_consecutive_not_found:
+                        logger.info(f"   ⚠️  {not_found} IDs consecutivos sem torneio, provável fim do range")
+                        break
                 
-                # Log a cada 10 torneios (reduzido de 20)
+                # Log a cada 10 torneios
                 if checked % 10 == 0:
-                    logger.debug(f"   📊 Escaneados {checked}/{count} torneios, {len(found_tournaments)} com partidas")
+                    logger.debug(f"   📊 Escaneados {checked}/{count} IDs, {len(found_tournaments)} com partidas")
                     
             except Exception as e:
-                logger.debug(f"   ⚠️  Erro ao escanear torneio {tournament_id}: {e}")
+                logger.debug(f"   ⚠️  Erro ao escanear ID {tournament_id}: {e}")
+                not_found += 1
                 continue
         
-        logger.info(f"🎯 Scan finalizado: {checked} torneios verificados, {len(found_tournaments)} com partidas")
+        logger.info(f"🎯 Scan finalizado: {checked} IDs verificados, {len(found_tournaments)} com partidas")
         return found_tournaments
     
     def get_all_active_matches(self, delay_between_requests=0.5, fallback_scan=True):
@@ -198,13 +207,21 @@ class FIFA25APIClient:
             if not has_active_tournaments and fallback_scan:
                 logger.warning("⚠️  Nenhum torneio retornado por locations, ativando scan de IDs...")
                 
-                # Calcular ID base (torneios são criados diariamente)
-                # Estimativa: ~50-100 torneios por dia, IDs sequenciais
-                base_id = 233900  # Ajuste conforme necessário
+                # Calcular ID base dinâmico
+                # Torneios são criados diariamente (~50-100 por dia)
+                # Estimativa: ID aumenta ~100 por dia desde 01/01/2026
+                from datetime import date
+                days_since_start = (date.today() - date(2026, 1, 1)).days
+                estimated_base = 233800 + (days_since_start * 100)
+                
+                # Escanear últimos 150 IDs (cobrir últimos 1-2 dias)
+                base_id = estimated_base - 50  # Começar um pouco antes
+                
+                logger.info(f"📅 ID base estimado: {base_id} (dias desde 01/01: {days_since_start})")
                 
                 found_tournaments = self.scan_recent_tournament_ids(
                     start_id=base_id,
-                    count=50  # Reduzido para 50 IDs (mais rápido)
+                    count=100  # Aumentado para 100 para cobrir mais
                 )
                 
                 if found_tournaments:
