@@ -214,22 +214,27 @@ class FIFA25APIClient:
             if not has_active_tournaments and fallback_scan:
                 logger.warning("⚠️  Nenhum torneio retornado por locations, ativando scan de IDs...")
                 
-                # Calcular ID base dinâmico
-                # AJUSTADO: IDs crescem ~50 por dia (não 100)
+                # BASEADO EM DADOS REAIS:
+                # 22/01/2026 (21 dias): IDs reais eram 234144-234180
+                # 23/01/2026 (22 dias): estimar +50 IDs = ~234230
                 from datetime import date
                 days_since_start = (date.today() - date(2026, 1, 1)).days
-                estimated_base = 233800 + (days_since_start * 50)  # Ajustado de 100 para 50
+                
+                # Começar de um ID seguro baseado em dados reais
+                # Em 21 dias, ID médio era ~234160
+                # Taxa: ~17 IDs por dia (234160 - 233800) / 21
+                estimated_base = 233800 + (days_since_start * 17)
                 
                 logger.info(f"📅 ID base estimado: {estimated_base} (dias desde 01/01: {days_since_start})")
                 
-                # ESTRATÉGIA: Escanear para TRÁS primeiro
-                base_id = estimated_base - 100  # Começar 100 IDs antes
+                # ESTRATÉGIA: Escanear range amplo para garantir
+                base_id = estimated_base - 150  # Começar 150 IDs antes
                 
-                logger.info(f"🔍 Estratégia: Começando em {base_id} (100 IDs antes da estimativa)")
+                logger.info(f"🔍 Estratégia: Começando em {base_id} (150 IDs antes da estimativa)")
                 
                 found_tournaments = self.scan_recent_tournament_ids(
                     start_id=base_id,
-                    count=200  # Escanear 200 IDs (de -100 até +100)
+                    count=300  # Escanear 300 IDs (de -150 até +150)
                 )
                 
                 if found_tournaments:
