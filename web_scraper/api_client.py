@@ -214,27 +214,25 @@ class FIFA25APIClient:
             if not has_active_tournaments and fallback_scan:
                 logger.warning("⚠️  Nenhum torneio retornado por locations, ativando scan de IDs...")
                 
-                # BASEADO EM DADOS REAIS:
-                # 22/01/2026 (21 dias): IDs reais eram 234144-234180
-                # 23/01/2026 (22 dias): estimar +50 IDs = ~234230
+                # ESTRATÉGIA CONSERVADORA: Começar de IDs conhecidos
+                # Dados reais 22/01: IDs eram ~234160
+                # Crescimento lento: ~10-20 IDs por dia
                 from datetime import date
                 days_since_start = (date.today() - date(2026, 1, 1)).days
                 
-                # Começar de um ID seguro baseado em dados reais
-                # Em 21 dias, ID médio era ~234160
-                # Taxa: ~17 IDs por dia (234160 - 233800) / 21
-                estimated_base = 233800 + (days_since_start * 17)
+                # ID base conservador (começar mais baixo)
+                estimated_base = 234000 + (days_since_start * 10)
                 
                 logger.info(f"📅 ID base estimado: {estimated_base} (dias desde 01/01: {days_since_start})")
                 
-                # ESTRATÉGIA: Escanear range amplo para garantir
-                base_id = estimated_base - 150  # Começar 150 IDs antes
+                # ESTRATÉGIA: Começar BEM ABAIXO para garantir
+                base_id = 234000  # Fixo para garantir que pega tudo
                 
-                logger.info(f"🔍 Estratégia: Começando em {base_id} (150 IDs antes da estimativa)")
+                logger.info(f"🔍 Estratégia: Começando em {base_id} (ID fixo conservador)")
                 
                 found_tournaments = self.scan_recent_tournament_ids(
                     start_id=base_id,
-                    count=300  # Escanear 300 IDs (de -150 até +150)
+                    count=400  # Escanear 400 IDs de 234000 até 234400
                 )
                 
                 if found_tournaments:
