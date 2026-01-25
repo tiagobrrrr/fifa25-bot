@@ -20,7 +20,7 @@
         <h3>Última Atualização</h3>
         <div class="value" style="font-size: 1.2em;">
             {% if last_scan %}
-                {{ last_scan.timestamp.strftime('%H:%M:%S') }}
+                {{ last_scan.timestamp.strftime('%d/%m %H:%M:%S') }}
             {% else %}
                 --:--:--
             {% endif %}
@@ -75,6 +75,7 @@
 {% if last_scan %}
 <div style="margin-top: 30px; padding: 20px; background: #ecf0f1; border-radius: 8px;">
     <h3 style="margin-bottom: 10px; color: #2c3e50;">📋 Último Scraping</h3>
+    <p><strong>Horário (Brasília):</strong> {{ last_scan.timestamp.strftime('%d/%m/%Y %H:%M:%S') }}</p>
     <p><strong>Status:</strong> 
         <span class="badge {% if last_scan.status == 'success' %}badge-finished{% else %}badge-live{% endif %}">
             {{ last_scan.status.upper() }}

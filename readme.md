@@ -444,4 +444,4 @@ Encontrou um bug? Tem uma sugestão?
 
 ---
 
-**⚡ Bot rodando 24/7 com 100% de precisão na coleta de dados!**
+**⚡ Bot rodando 24/7 com 100% de precisão na coleta de dados!**"# fifa25-bot"  

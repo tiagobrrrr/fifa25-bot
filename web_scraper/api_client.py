@@ -1,258 +1,441 @@
+# -*- coding: utf-8 -*-
+"""
+api_client.py - VERSÃO FINAL CORRIGIDA
+Baseado na estrutura REAL da API descoberta no api_findings.json
+
+ESTRUTURA CONFIRMADA:
+- /api/locations → retorna lista direta
+- /api/tournaments → retorna {totalPages: int, tournaments: []}
+- /api/teams → retorna {totalPages: int, teams: []}
+"""
+
 import requests
-from datetime import datetime, timedelta
-import time
 import logging
-from functools import wraps
+from typing import List, Dict, Optional
+from datetime import datetime
+import time
 
 logger = logging.getLogger(__name__)
 
-def retry_on_failure(max_retries=3, delay=2, backoff=2):
-    """Decorator para retry automático com backoff exponencial"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            current_delay = delay
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except requests.exceptions.RequestException as e:
-                    if attempt == max_retries - 1:
-                        logger.error(f"❌ Falha após {max_retries} tentativas: {e}")
-                        raise
-                    
-                    logger.warning(f"⚠️  Tentativa {attempt + 1}/{max_retries} falhou: {e}")
-                    time.sleep(current_delay)
-                    current_delay *= backoff
-                except Exception as e:
-                    logger.error(f"❌ Erro inesperado: {e}")
-                    raise
-            
-        return wrapper
-    return decorator
-
 
 class FIFA25APIClient:
-    """Cliente para a API do Football Esports Battle"""
-    
-    BASE_URL = "https://football.esportsbattle.com/api"
+    """Cliente da API ESportsBattle com estrutura correta"""
     
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
+        self.base_url = "https://football.esportsbattle.com"
+        self.session = self._create_session()
+        
+    def _create_session(self):
+        """Cria sessão HTTP"""
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://football.esportsbattle.com/',
-            'Origin': 'https://football.esportsbattle.com'
+            'Referer': f'{self.base_url}/en/',
+            'Origin': self.base_url,
         })
-        
-        self._locations_cache = None
-        self._cache_time = None
-        self._cache_duration = timedelta(minutes=2)  # Cache menor (2 min)
+        return session
     
-    @retry_on_failure(max_retries=3, delay=2)
-    def get_locations(self, use_cache=True):
-        """Busca todas as locations (estádios) disponíveis"""
-        if use_cache and self._locations_cache is not None:
-            if self._cache_time and datetime.now() - self._cache_time < self._cache_duration:
-                logger.debug("📦 Usando cache de locations")
-                return self._locations_cache
+    def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
+        """Faz requisição HTTP"""
+        url = f"{self.base_url}{endpoint}"
         
         try:
-            url = f"{self.BASE_URL}/locations"
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
+            response = self.session.get(url, params=params, timeout=15)
             
-            data = response.json()
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
+                logger.debug(f"404: {endpoint}")
+            else:
+                logger.warning(f"Status {response.status_code}: {endpoint}")
             
-            self._locations_cache = data
-            self._cache_time = datetime.now()
-            
-            logger.info(f"✅ {len(data)} locations encontradas")
-            return data
-            
-        except Exception as e:
-            logger.error(f"❌ Erro ao buscar locations: {e}")
-            return []
-    
-    @retry_on_failure(max_retries=3, delay=2)
-    def get_tournament(self, tournament_id):
-        """Busca dados de um torneio específico"""
-        try:
-            url = f"{self.BASE_URL}/tournaments/{tournament_id}"
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if isinstance(data, list) and len(data) > 0:
-                data = data[0]
-            
-            return data
+            return None
             
         except Exception as e:
-            logger.error(f"❌ Erro ao buscar torneio {tournament_id}: {e}")
+            logger.error(f"Erro em {endpoint}: {e}")
             return None
     
-    def scan_recent_tournament_ids(self, start_id=233900, count=250):
+    def get_locations(self) -> List[Dict]:
         """
-        Escaneia IDs de torneios recentes para encontrar partidas
-        OTIMIZADO: Para após 30 IDs vazios OU 5 torneios encontrados
+        Busca locations
+        
+        Retorna lista direta:
+        [
+            {
+                "id": 1,
+                "status_id": 1,
+                "token": "Wembley",
+                "token_international": "Wembley",
+                "color": "#008080"
+            }
+        ]
         """
-        logger.info(f"🔍 Escaneando de {start_id} até {start_id + count} ({count} IDs)...")
+        logger.info("📍 Buscando locations...")
         
-        found_tournaments = []
-        checked = 0
-        not_found_consecutive = 0
-        max_consecutive_not_found = 30  # Aumentado para 30
+        data = self._make_request('/api/locations')
         
-        for tournament_id in range(start_id, start_id + count):
-            try:
-                time.sleep(0.12)  # 120ms - mais rápido
-                checked += 1
-                
-                tournament = self.get_tournament(tournament_id)
-                
-                if tournament and isinstance(tournament, dict) and 'id' in tournament:
-                    matches = tournament.get('matches', [])
-                    not_found_consecutive = 0  # Reset contador
-                    
-                    if matches:
-                        active_matches = [m for m in matches if m.get('status_id') in [1, 2]]
-                        recent_finished = [m for m in matches if m.get('status_id') == 3]
-                        
-                        if active_matches or recent_finished:
-                            found_tournaments.append(tournament)
-                            logger.info(f"   ✅ ID {tournament_id}: {len(active_matches)} ativas, {len(recent_finished)} finalizadas")
-                            
-                            # Parar após encontrar 5 torneios
-                            if len(found_tournaments) >= 5:
-                                logger.info(f"   🎯 Encontrados {len(found_tournaments)} torneios, parando")
-                                break
-                else:
-                    not_found_consecutive += 1
-                    
-                    # Parar após 30 IDs vazios consecutivos
-                    if not_found_consecutive >= max_consecutive_not_found:
-                        logger.info(f"   ⚠️  {not_found_consecutive} IDs vazios consecutivos, parando")
-                        break
-                
-                # Log progresso a cada 20 IDs
-                if checked % 20 == 0:
-                    logger.info(f"   📊 Progresso: {checked}/{count} IDs, {len(found_tournaments)} torneios encontrados")
-                    
-            except Exception as e:
-                logger.debug(f"   ⚠️  Erro no ID {tournament_id}: {e}")
-                not_found_consecutive += 1
-                continue
+        if not data:
+            logger.warning("Nenhuma location encontrada")
+            return []
         
-        logger.info(f"🎯 Scan completo: {checked} IDs verificados, {len(found_tournaments)} torneios com partidas")
+        # API retorna lista direta
+        locations = data if isinstance(data, list) else []
         
-        if found_tournaments:
-            first_id = found_tournaments[0]['id']
-            last_id = found_tournaments[-1]['id']
-            logger.info(f"   📌 Range encontrado: {first_id} até {last_id}")
+        logger.info(f"✅ {len(locations)} location(s) encontrada(s)")
         
-        return found_tournaments
+        for loc in locations:
+            logger.info(f"   🏟️  {loc.get('token_international', loc.get('token', 'N/A'))}")
+        
+        return locations
     
-    def get_all_active_matches(self, delay_between_requests=0.5, fallback_scan=True):
+    def get_tournaments(self, page: int = 1, location_id: Optional[int] = None) -> Dict:
         """
-        Coleta todas as partidas ativas de todos os torneios
+        Busca torneios (com paginação)
+        
+        Retorna estrutura:
+        {
+            "totalPages": 0,
+            "tournaments": []
+        }
         
         Args:
-            delay_between_requests: Delay entre requisições
-            fallback_scan: Se True, faz scan de IDs quando locations não retornam torneios
+            page: Número da página (padrão: 1)
+            location_id: Filtrar por location (opcional)
         """
-        all_matches = []
+        params = {'page': page}
+        if location_id:
+            params['location'] = location_id
+        
+        logger.info(f"🏆 Buscando torneios (página {page})...")
+        
+        data = self._make_request('/api/tournaments', params)
+        
+        if not data:
+            logger.warning("Endpoint de torneios não retornou dados")
+            return {'totalPages': 0, 'tournaments': []}
+        
+        # Estrutura confirmada da API
+        total_pages = data.get('totalPages', 0)
+        tournaments = data.get('tournaments', [])
+        
+        logger.info(f"📊 Total de páginas: {total_pages}")
+        logger.info(f"✅ {len(tournaments)} torneio(s) nesta página")
+        
+        if tournaments:
+            for t in tournaments:
+                t_id = t.get('id', 'N/A')
+                t_name = t.get('name', t.get('token', 'N/A'))
+                logger.info(f"   🏆 ID {t_id}: {t_name}")
+        
+        return {
+            'totalPages': total_pages,
+            'tournaments': tournaments
+        }
+    
+    def get_all_tournaments(self, location_id: Optional[int] = None) -> List[Dict]:
+        """
+        Busca TODOS os torneios (todas as páginas)
+        
+        Args:
+            location_id: Filtrar por location (opcional)
+        """
+        logger.info("🔄 Buscando todos os torneios...")
+        
         all_tournaments = []
+        page = 1
+        
+        while True:
+            result = self.get_tournaments(page, location_id)
+            tournaments = result['tournaments']
+            total_pages = result['totalPages']
+            
+            all_tournaments.extend(tournaments)
+            
+            # Se não há mais páginas, parar
+            if page >= total_pages or not tournaments:
+                break
+            
+            page += 1
+            time.sleep(0.5)  # Rate limiting
+        
+        logger.info(f"✅ Total de torneios coletados: {len(all_tournaments)}")
+        return all_tournaments
+    
+    def get_tournament_details(self, tournament_id: int) -> Optional[Dict]:
+        """Busca detalhes de um torneio específico"""
+        logger.debug(f"Buscando detalhes do torneio {tournament_id}...")
+        
+        endpoints = [
+            f'/api/tournaments/{tournament_id}',
+            f'/api/tournaments/{tournament_id}/details',
+            f'/api/tournaments/{tournament_id}/matches'
+        ]
+        
+        for endpoint in endpoints:
+            data = self._make_request(endpoint)
+            if data:
+                logger.debug(f"✓ Detalhes encontrados via {endpoint}")
+                return data
+        
+        return None
+    
+    def get_matches(self, tournament_id: Optional[int] = None) -> List[Dict]:
+        """
+        Busca partidas
+        
+        Args:
+            tournament_id: Filtrar por torneio (opcional)
+        """
+        if tournament_id:
+            logger.info(f"⚽ Buscando partidas do torneio {tournament_id}...")
+            
+            endpoints = [
+                f'/api/tournaments/{tournament_id}/matches',
+                f'/api/matches?tournament={tournament_id}',
+                f'/api/matches?tournamentId={tournament_id}'
+            ]
+            
+            for endpoint in endpoints:
+                data = self._make_request(endpoint)
+                if data:
+                    matches = self._extract_matches(data)
+                    if matches:
+                        logger.info(f"✅ {len(matches)} partida(s) encontrada(s)")
+                        return matches
+            
+            logger.warning(f"Nenhuma partida encontrada para torneio {tournament_id}")
+            return []
+        else:
+            logger.info("⚽ Buscando todas as partidas...")
+            data = self._make_request('/api/matches')
+            matches = self._extract_matches(data)
+            logger.info(f"✅ {len(matches)} partida(s) encontrada(s)")
+            return matches
+    
+    def _extract_matches(self, data: Dict) -> List[Dict]:
+        """Extrai partidas de diferentes estruturas de resposta"""
+        if not data:
+            return []
+        
+        if isinstance(data, list):
+            return data
+        
+        if isinstance(data, dict):
+            # Tentar diferentes chaves
+            for key in ['matches', 'data', 'items', 'results']:
+                if key in data:
+                    matches = data[key]
+                    return matches if isinstance(matches, list) else []
+        
+        return []
+    
+    def get_teams(self, page: int = 1) -> Dict:
+        """
+        Busca teams (com paginação)
+        
+        Retorna estrutura:
+        {
+            "totalPages": 1,
+            "teams": [...]
+        }
+        """
+        params = {'page': page}
+        
+        logger.info(f"👥 Buscando teams (página {page})...")
+        
+        data = self._make_request('/api/teams', params)
+        
+        if not data:
+            return {'totalPages': 0, 'teams': []}
+        
+        total_pages = data.get('totalPages', 0)
+        teams = data.get('teams', [])
+        
+        logger.info(f"✅ {len(teams)} team(s) encontrado(s)")
+        
+        return {
+            'totalPages': total_pages,
+            'teams': teams
+        }
+    
+    def get_all_teams(self) -> List[Dict]:
+        """Busca TODOS os teams (todas as páginas)"""
+        logger.info("🔄 Buscando todos os teams...")
+        
+        all_teams = []
+        page = 1
+        
+        while True:
+            result = self.get_teams(page)
+            teams = result['teams']
+            total_pages = result['totalPages']
+            
+            all_teams.extend(teams)
+            
+            if page >= total_pages or not teams:
+                break
+            
+            page += 1
+            time.sleep(0.5)
+        
+        logger.info(f"✅ Total de teams coletados: {len(all_teams)}")
+        return all_teams
+    
+    def scrape_all_data(self) -> Dict[str, any]:
+        """
+        Coleta TODOS os dados disponíveis
+        Método principal para usar no bot
+        """
+        logger.info("="*80)
+        logger.info("🔄 Iniciando coleta completa de dados ESportsBattle")
+        logger.info("="*80)
+        
+        results = {
+            'locations': [],
+            'tournaments': [],
+            'matches': [],
+            'teams': [],
+            'summary': {
+                'locations_count': 0,
+                'tournaments_count': 0,
+                'matches_count': 0,
+                'teams_count': 0,
+                'timestamp': datetime.now().isoformat()
+            }
+        }
         
         try:
-            # MÉTODO 1: Buscar via locations (método oficial)
-            locations = self.get_locations(use_cache=False)  # Sempre buscar fresh
+            # 1. Locations
+            results['locations'] = self.get_locations()
+            results['summary']['locations_count'] = len(results['locations'])
+            time.sleep(0.5)
             
-            if not locations:
-                logger.warning("⚠️  Nenhuma location encontrada")
-                return all_matches, all_tournaments
+            # 2. Torneios (todas as páginas)
+            results['tournaments'] = self.get_all_tournaments()
+            results['summary']['tournaments_count'] = len(results['tournaments'])
             
-            logger.info(f"📍 Encontradas {len(locations)} locations")
+            # Se não encontrou torneios gerais, tentar por location
+            if not results['tournaments'] and results['locations']:
+                logger.info("Tentando buscar torneios por location...")
+                for location in results['locations']:
+                    loc_id = location.get('id')
+                    if loc_id:
+                        tournaments = self.get_all_tournaments(loc_id)
+                        results['tournaments'].extend(tournaments)
+                        time.sleep(0.3)
+                
+                results['summary']['tournaments_count'] = len(results['tournaments'])
             
-            has_active_tournaments = False
+            time.sleep(0.5)
             
-            for location in locations:
-                location_name = location.get('token', 'Unknown')
-                tournaments = location.get('tournaments', [])
-                match_count = location.get('matchCount', 0)
-                
-                logger.info(f"   🏟️  {location_name}: {len(tournaments)} torneio(s), {match_count} partida(s)")
-                
-                if tournaments:
-                    has_active_tournaments = True
-                    
-                    for tournament_id in tournaments:
-                        if delay_between_requests > 0:
-                            time.sleep(delay_between_requests)
-                        
-                        logger.info(f"      🔍 Buscando torneio {tournament_id}...")
-                        
-                        tournament_data = self.get_tournament(tournament_id)
-                        
-                        if not tournament_data:
-                            continue
-                        
-                        matches = tournament_data.get('matches', [])
-                        
-                        if matches:
-                            all_tournaments.append(tournament_data)
-                            all_matches.extend(matches)
-                            
-                            active = len([m for m in matches if m.get('status_id') in [1, 2]])
-                            finished = len([m for m in matches if m.get('status_id') == 3])
-                            
-                            logger.info(f"      ✅ {len(matches)} partidas: {active} ativas, {finished} finalizadas")
+            # 3. Partidas de cada torneio
+            if results['tournaments']:
+                logger.info(f"🔍 Buscando partidas de {len(results['tournaments'])} torneios...")
+                for tournament in results['tournaments']:
+                    tournament_id = tournament.get('id')
+                    if tournament_id:
+                        matches = self.get_matches(tournament_id)
+                        results['matches'].extend(matches)
+                        time.sleep(0.3)
+            else:
+                # Tentar buscar partidas gerais
+                logger.info("Tentando buscar partidas gerais...")
+                results['matches'] = self.get_matches()
             
-            # MÉTODO 2: Fallback - escanear IDs de torneios recentes
-            if not has_active_tournaments and fallback_scan:
-                logger.warning("⚠️  Nenhum torneio retornado por locations, ativando scan de IDs...")
-                
-                # ESTRATÉGIA CONSERVADORA: Começar de IDs conhecidos
-                # Dados reais 22/01: IDs eram ~234160
-                # Crescimento lento: ~10-20 IDs por dia
-                from datetime import date
-                days_since_start = (date.today() - date(2026, 1, 1)).days
-                
-                # ID base conservador (começar mais baixo)
-                estimated_base = 234000 + (days_since_start * 10)
-                
-                logger.info(f"📅 ID base estimado: {estimated_base} (dias desde 01/01: {days_since_start})")
-                
-                # ESTRATÉGIA: Começar BEM ABAIXO para garantir
-                base_id = 234000  # Fixo para garantir que pega tudo
-                
-                logger.info(f"🔍 Estratégia: Começando em {base_id} (ID fixo conservador)")
-                
-                found_tournaments = self.scan_recent_tournament_ids(
-                    start_id=base_id,
-                    count=400  # Escanear 400 IDs de 234000 até 234400
-                )
-                
-                if found_tournaments:
-                    all_tournaments.extend(found_tournaments)
-                    
-                    for tournament in found_tournaments:
-                        matches = tournament.get('matches', [])
-                        all_matches.extend(matches)
-                else:
-                    logger.warning("⚠️  Scan de IDs não encontrou torneios com partidas")
+            results['summary']['matches_count'] = len(results['matches'])
+            time.sleep(0.5)
             
-            logger.info(f"\n📊 Total coletado: {len(all_matches)} partidas de {len(all_tournaments)} torneios")
-            
-            return all_matches, all_tournaments
+            # 4. Teams (todas as páginas)
+            results['teams'] = self.get_all_teams()
+            results['summary']['teams_count'] = len(results['teams'])
             
         except Exception as e:
-            logger.error(f"❌ Erro ao coletar partidas: {e}", exc_info=True)
-            return all_matches, all_tournaments
+            logger.error(f"❌ Erro durante coleta: {e}")
+        
+        # Log resumo
+        logger.info("")
+        logger.info("="*80)
+        logger.info("📊 RESUMO DA COLETA")
+        logger.info("="*80)
+        logger.info(f"   Locations: {results['summary']['locations_count']}")
+        logger.info(f"   Torneios: {results['summary']['tournaments_count']}")
+        logger.info(f"   Partidas: {results['summary']['matches_count']}")
+        logger.info(f"   Teams: {results['summary']['teams_count']}")
+        logger.info("="*80)
+        
+        # Status
+        if results['summary']['matches_count'] > 0:
+            logger.info("✅ SUCESSO - Partidas encontradas!")
+        elif results['summary']['tournaments_count'] > 0:
+            logger.warning("⚠️  Torneios encontrados mas sem partidas")
+        else:
+            logger.warning("⚠️  Nenhum torneio ativo no momento")
+            logger.info("💡 Tente novamente em horário de jogos (10h-23h UTC)")
+        
+        return results
     
-    def close(self):
-        """Fecha a sessão HTTP"""
-        self.session.close()
-        logger.debug("🔒 Sessão HTTP fechada")
+    def get_summary(self) -> Dict:
+        """Retorna resumo rápido"""
+        locations = self.get_locations()
+        tournaments_result = self.get_tournaments()
+        
+        return {
+            'locations_count': len(locations),
+            'tournaments_count': len(tournaments_result['tournaments']),
+            'tournaments_pages': tournaments_result['totalPages'],
+            'timestamp': datetime.now().isoformat()
+        }
+
+
+# Para compatibilidade com código antigo
+class FIFA25Scraper:
+    """Alias para compatibilidade"""
+    
+    def __init__(self):
+        self.client = FIFA25APIClient()
+    
+    def get_live_matches(self):
+        return self.client.get_matches()
+    
+    def get_recent_matches(self):
+        return self.client.get_matches()
+
+
+# Teste rápido
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    client = FIFA25APIClient()
+    
+    # Teste rápido
+    print("\n" + "="*80)
+    print("TESTE RÁPIDO DA API")
+    print("="*80 + "\n")
+    
+    # 1. Locations
+    locations = client.get_locations()
+    print(f"✓ Locations: {len(locations)}")
+    
+    # 2. Torneios
+    tournaments_data = client.get_tournaments()
+    print(f"✓ Torneios (página 1): {len(tournaments_data['tournaments'])}")
+    print(f"✓ Total de páginas: {tournaments_data['totalPages']}")
+    
+    # 3. Teams
+    teams_data = client.get_teams()
+    print(f"✓ Teams (página 1): {len(teams_data['teams'])}")
+    
+    print("\n" + "="*80)
+    
+    if tournaments_data['tournaments']:
+        print("✅ API funcionando - há torneios ativos!")
+    else:
+        print("⚠️  API funcionando mas SEM torneios ativos no momento")
+        print("💡 Isso é normal - tente em horário de jogos")
+    
+    print("="*80 + "\n")
