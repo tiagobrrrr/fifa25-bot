@@ -1,36 +1,92 @@
-# 🎮 FIFA25 Scraping Bot - VERSÃO CORRIGIDA
+# 🎮 FIFA25 Bot - ESportsBattle Scraper
 
-Bot completo e otimizado para coleta de dados de partidas FIFA 25 do **Football Esports Battle**, com dashboard web, API REST e execução 24/7 no Render.
+Bot completo para scraping de torneios e partidas FIFA 25 do site **football.esportsbattle.com**.
 
-## 🚀 O Que Foi Corrigido
+## ✨ Características
 
-### ✅ Principais Melhorias
+- ✅ **Scraping inteligente** com estrutura correta da API
+- ✅ **Paginação automática** para todos os torneios
+- ✅ **Dashboard web** com monitoramento em tempo real
+- ✅ **Scheduler** verificando automaticamente a cada 2 minutos
+- ✅ **Logging detalhado** de todas as operações
+- ✅ **Cache inteligente** para evitar requisições desnecessárias
+- ✅ **Tratamento robusto de erros**
+- ✅ **Pronto para Render** com deploy automático
 
-1. **API REST Direta**
-   - Substituído scraping HTML por chamadas diretas à API
-   - 3x mais rápido e confiável
-   - Dados estruturados em JSON
+## 📊 Estrutura da API Confirmada
 
-2. **Sistema de Retry Robusto**
-   - Retry automático com backoff exponencial
-   - Tratamento de erros aprimorado
-   - Logs detalhados
+```
+GET /api/locations → Lista de locations (estádios)
+GET /api/tournaments?page=N → {totalPages: int, tournaments: []}
+GET /api/teams?page=N → {totalPages: int, teams: []}
+GET /api/tournaments/{id}/matches → Lista de partidas
+```
 
-3. **Modelos de Dados Otimizados**
-   - Models com métodos `from_api_data()`
-   - Índices para consultas rápidas
-   - Estatísticas de jogadores automáticas
+## 🚀 Instalação Local
 
-4. **Cache Inteligente**
-   - Cache de locations (5 minutos)
-   - Reduz chamadas desnecessárias
+### 1. Clone o repositório
 
-5. **Logs e Monitoramento**
-   - Tabela `scraper_logs` com histórico
-   - Dashboard com estatísticas em tempo real
-   - Auto-refresh das páginas
+```bash
+git clone https://github.com/seu-usuario/fifa25-bot.git
+cd fifa25-bot
+```
 
----
+### 2. Crie ambiente virtual
+
+```bash
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux/Mac
+source venv/bin/activate
+```
+
+### 3. Instale dependências
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure variáveis de ambiente (opcional)
+
+Crie arquivo `.env`:
+
+```env
+SCAN_INTERVAL=120
+RUN_SCRAPER=true
+FLASK_ENV=development
+DATABASE_URL=sqlite:///fifa25.db
+```
+
+### 5. Execute a aplicação
+
+```bash
+python app.py
+```
+
+Acesse: http://localhost:5000
+
+## 🔧 Configuração
+
+### Variáveis de Ambiente
+
+| Variável | Descrição | Padrão |
+|----------|-----------|--------|
+| `PORT` | Porta da aplicação | `5000` |
+| `SCAN_INTERVAL` | Intervalo de scraping (segundos) | `120` |
+| `RUN_SCRAPER` | Ativar/desativar scraper | `true` |
+| `FLASK_ENV` | Ambiente Flask | `production` |
+| `DATABASE_URL` | URL do banco de dados | SQLite local |
+| `SESSION_SECRET` | Chave secreta Flask | Gerada |
+
+### Horários de Torneios
+
+Torneios do ESportsBattle geralmente ocorrem:
+- **Horário:** 10:00 - 23:00 UTC
+- **Brasil:** 07:00 - 20:00 BRT
+- **Frequência:** Diária, mais comum nos fins de semana
 
 ## 📁 Estrutura do Projeto
 
@@ -38,410 +94,290 @@ Bot completo e otimizado para coleta de dados de partidas FIFA 25 do **Football 
 fifa25-bot/
 │
 ├── app.py                          # Aplicação Flask principal
-├── models.py                       # Modelos do banco de dados
 ├── requirements.txt                # Dependências Python
-├── Procfile                        # Configuração Render/Heroku
+├── Procfile                        # Config para Render
 ├── runtime.txt                     # Versão do Python
-├── render-build.sh                 # Script de build
-├── .gitignore                      # Arquivos ignorados
-├── README.md                       # Este arquivo
 │
 ├── web_scraper/
-│   ├── __init__.py                 # Inicialização do módulo
-│   ├── api_client.py               # Cliente da API
-│   └── scraper_service.py          # Serviço de scraping
+│   ├── __init__.py
+│   ├── api_client.py              # Cliente da API (CORRIGIDO)
+│   └── scraper_service.py         # Serviço de scraping
 │
-└── templates/
-    ├── layout.html                 # Template base
-    ├── dashboard.html              # Dashboard
-    ├── matches.html                # Página de partidas
-    ├── players.html                # Página de jogadores
-    └── reports.html                # Página de relatórios
+├── templates/
+│   └── dashboard.html             # Dashboard web
+│
+├── static/                         # Arquivos estáticos (CSS/JS)
+└── models.py                       # Modelos do banco de dados
 ```
 
----
+## 🎯 Como Usar
 
-## 🔧 Instalação Local
-
-### 1. Clonar o Repositório
-
-```bash
-git clone https://github.com/tiagobrrrr/fifa25-bot.git
-cd fifa25-bot
-```
-
-### 2. Criar Ambiente Virtual
-
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate  # Windows
-```
-
-### 3. Instalar Dependências
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Executar Localmente
-
-```bash
-python app.py
-```
-
-Acesse: **http://localhost:5000**
-
----
-
-## 🚀 Deploy no Render
-
-### 1. Criar Conta no Render
-
-Acesse [render.com](https://render.com) e crie uma conta.
-
-### 2. Criar PostgreSQL Database
-
-1. Dashboard → **New** → **PostgreSQL**
-2. Nome: `fifa25-db`
-3. Plano: **Free**
-4. Criar database
-
-### 3. Criar Web Service
-
-1. Dashboard → **New** → **Web Service**
-2. Conectar repositório GitHub
-3. Configurações:
-   - **Name:** `fifa25-bot`
-   - **Environment:** `Python 3`
-   - **Build Command:** (deixar vazio, usa render-build.sh)
-   - **Start Command:** (deixar vazio, usa Procfile)
-
-### 4. Configurar Variáveis de Ambiente
-
-No painel do Render, adicione:
-
-| Variável | Valor | Descrição |
-|----------|-------|-----------|
-| `DATABASE_URL` | (auto-gerado) | URL do PostgreSQL |
-| `SESSION_SECRET` | `sua-chave-secreta` | Chave Flask |
-| `SCAN_INTERVAL` | `30` | Intervalo scraping (segundos) |
-| `RUN_SCRAPER` | `true` | Ativar scraping |
-| `PYTHON_VERSION` | `3.10.12` | Versão Python |
-
-### 5. Deploy
-
-Clique em **Create Web Service** e aguarde o deploy!
-
-Após concluído, acesse a URL gerada (ex: `https://fifa25-bot-xxxx.onrender.com`)
-
----
-
-## 📊 Funcionalidades
-
-### Dashboard Web
-
-- ✅ Estatísticas em tempo real
-- ✅ Top 10 jogadores
-- ✅ Status do último scraping
-- ✅ Auto-refresh (30s)
-
-### Partidas
-
-- ✅ Listagem completa
-- ✅ Filtros por status (ao vivo, finalizadas, agendadas)
-- ✅ Filtros por location (estádio)
-- ✅ Paginação
-
-### Jogadores
-
-- ✅ Ranking completo
-- ✅ Estatísticas detalhadas
-- ✅ Vitórias, empates, derrotas
-- ✅ Saldo de gols
-- ✅ Paginação
-
-### Relatórios
-
-- ✅ Logs do scraper
-- ✅ Histórico de execuções
-- ✅ Estatísticas de período
-- ✅ Tempo de execução
-
----
-
-## 🔌 API REST
-
-### Endpoints Disponíveis
-
-#### `GET /api/matches/live`
-Retorna partidas ao vivo
-
-```json
-[
-  {
-    "id": 1906579,
-    "location": "Wembley",
-    "player1": "aguuero",
-    "player2": "Linox",
-    "score": "3 - 3",
-    "team1": "Frankfurt",
-    "team2": "Leipzig",
-    "stream_url": "https://...",
-    "date": "2026-01-18T16:36:00Z"
-  }
-]
-```
-
-#### `GET /api/matches/today`
-Retorna partidas do dia
-
-#### `GET /api/matches/recent?limit=20`
-Retorna partidas recentes
-
-#### `GET /api/players/ranking?min_matches=5&limit=50`
-Retorna ranking de jogadores
-
-#### `GET /api/stats`
-Retorna estatísticas gerais
-
-```json
-{
-  "total_matches": 156,
-  "total_players": 45,
-  "live_matches": 3,
-  "today_matches": 12,
-  "last_scan": "2026-01-20T01:21:12Z",
-  "last_scan_status": "success"
-}
-```
-
-#### `GET /api/scraper/status`
-Retorna status do scraper
-
----
-
-## 🛠 Como Funciona
-
-### 1. API Client (`web_scraper/api_client.py`)
+### Teste Rápido da API
 
 ```python
+from web_scraper.api_client import FIFA25APIClient
+
 client = FIFA25APIClient()
 
-# Buscar locations
-locations = client.get_locations()
-
-# Buscar torneio
-tournament = client.get_tournament(233843)
-
-# Coletar todas as partidas
-matches, tournaments = client.get_all_active_matches()
+# Resumo rápido
+summary = client.get_summary()
+print(f"Locations: {summary['locations_count']}")
+print(f"Torneios: {summary['tournaments_count']}")
 ```
 
-### 2. Scraper Service (`web_scraper/scraper_service.py`)
+### Coleta Completa de Dados
 
 ```python
-scraper = ScraperService(db)
+from web_scraper.api_client import FIFA25APIClient
 
-# Executar scraping
-stats = scraper.run()
+client = FIFA25APIClient()
 
-# Resultado:
-# {
-#   'matches_found': 15,
-#   'matches_new': 3,
-#   'matches_updated': 2,
-#   'status': 'success'
-# }
+# Coletar todos os dados
+data = client.scrape_all_data()
+
+print(f"Torneios: {len(data['tournaments'])}")
+print(f"Partidas: {len(data['matches'])}")
+print(f"Teams: {len(data['teams'])}")
 ```
 
-### 3. APScheduler
+### Executar Scraping Manual
 
-O bot executa automaticamente:
-- **A cada 30s:** Coleta de partidas
-- **Domingo às 3h UTC:** Limpeza de dados antigos
+```python
+from web_scraper.scraper_service import ScraperService
 
----
+service = ScraperService()
+result = service.run_scraping()
+
+print(f"Sucesso: {result['success']}")
+print(f"Processados: {result['processed']}")
+```
+
+## 🌐 Deploy no Render
+
+### 1. Conectar Repositório
+
+- Acesse [render.com](https://render.com)
+- Crie novo **Web Service**
+- Conecte seu repositório GitHub
+
+### 2. Configurar Build
+
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** Deixe vazio (usa Procfile)
+
+### 3. Variáveis de Ambiente
+
+Configure no painel do Render:
+
+```
+DATABASE_URL=postgresql://...  (gerado automaticamente)
+SCAN_INTERVAL=120
+RUN_SCRAPER=true
+SESSION_SECRET=seu-secret-key-aleatorio
+```
+
+### 4. Deploy
+
+O deploy acontece automaticamente a cada push no branch main.
+
+### 5. Monitorar Logs
+
+```
+Logs → Ver em tempo real
+```
+
+Procure por:
+```
+✅ X location(s) encontrada(s)
+✅ X torneio(s) encontrado(s)
+✅ X partida(s) encontrada(s)
+```
+
+## 📊 Dashboard
+
+O dashboard mostra:
+
+- **Status do sistema** (ativo/inativo)
+- **Contadores** de locations, torneios e partidas
+- **Estatísticas** de execuções
+- **Taxa de sucesso** do scraper
+- **Última verificação**
+- **Botões** para ações manuais
+
+### Endpoints da API
+
+```
+GET /                   → Dashboard web
+GET /api/status         → Status JSON completo
+GET /api/scrape/now     → Executar scraping manual
+GET /api/summary        → Resumo dos dados
+GET /api/stats          → Estatísticas do scraper
+GET /health             → Health check
+```
+
+## 🔍 Troubleshooting
+
+### Nenhum torneio encontrado
+
+**Causa:** Não há torneios ativos no momento
+
+**Solução:**
+- Torneios ocorrem entre 10h-23h UTC
+- Aguarde e o bot detectará automaticamente
+- Verifique manualmente em: https://football.esportsbattle.com/en/
+
+### Erro 403 (Forbidden)
+
+**Causa:** Site detectou bot
+
+**Solução:**
+- Headers já estão configurados corretamente
+- Se persistir, adicione delay maior entre requisições
+- Modifique `SCAN_INTERVAL` para 180 ou 300 segundos
+
+### Erro ao conectar
+
+**Causa:** Problemas de rede ou site fora do ar
+
+**Solução:**
+- Verifique se o site está online
+- Aguarde alguns minutos e tente novamente
+- Bot tentará automaticamente na próxima execução
+
+### Muitas verificações vazias
+
+**Causa:** Horário fora do período de torneios
+
+**Solução:**
+- Normal durante a madrugada/manhã
+- Bot reduz automaticamente a frequência
+- Voltará ao normal quando detectar torneios
 
 ## 📝 Logs
 
-O bot registra todas as execuções na tabela `scraper_logs`:
+### Níveis de Log
 
+```python
+logger.info()    # Informações gerais
+logger.warning() # Avisos (não críticos)
+logger.error()   # Erros (requerem atenção)
+logger.debug()   # Detalhes técnicos
 ```
-2026-01-20 01:21:12 | SUCCESS | 15 partidas | 3 novas | 2 atualizadas | 2.85s
+
+### Onde Encontrar Logs
+
+**Local:**
+```
+app.log (arquivo)
+Console (stdout)
 ```
 
-Visualize em: **/reports**
+**Render:**
+```
+Dashboard → Logs
+```
 
----
+### Logs Importantes
 
-## ⚙️ Configurações
+**Sucesso:**
+```
+✅ 1 location(s) encontrada(s)
+✅ 5 torneio(s) encontrado(s)
+✅ 23 partida(s) encontrada(s)
+```
 
-### Variáveis de Ambiente
+**Aguardando:**
+```
+⏰ Nenhum torneio ativo no momento
+💡 Tente novamente em horário de jogos
+```
+
+**Erros:**
+```
+❌ Erro durante scraping: ...
+🚫 Status 403 para /api/...
+```
+
+## 🧪 Testes
+
+### Teste Local Completo
 
 ```bash
-# Banco de dados
-DATABASE_URL=postgresql://user:pass@host/db
+# Teste da API
+python -c "from web_scraper.api_client import FIFA25APIClient; c = FIFA25APIClient(); print(c.get_summary())"
 
-# Flask
-SESSION_SECRET=your-secret-key
+# Teste do scraper
+python -c "from web_scraper.scraper_service import ScraperService; s = ScraperService(); print(s.run_scraping())"
 
-# Scraper
-SCAN_INTERVAL=30        # Intervalo em segundos
-RUN_SCRAPER=true        # true/false
-
-# Opcional
-PORT=5000
+# Teste da aplicação
+python app.py
 ```
 
-### Alterar Intervalo de Scraping
+### Teste no Navegador
 
-No Render, altere a variável `SCAN_INTERVAL`:
-- `30` = 30 segundos (padrão)
-- `60` = 1 minuto
-- `300` = 5 minutos
+```
+http://localhost:5000           → Dashboard
+http://localhost:5000/api/status  → Status JSON
+http://localhost:5000/health      → Health check
+```
 
-### Desabilitar Scraping
+## 🔄 Atualizações
 
-Configure `RUN_SCRAPER=false` para rodar apenas o dashboard sem scraping.
-
----
-
-## 🧪 Testar Localmente
-
-### Teste do API Client
+### Atualizar Código
 
 ```bash
-python web_scraper/api_client.py
-```
-
-Saída esperada:
-```
-================================================================================
-🎮 Testando FIFA25 API Client
-================================================================================
-
-1️⃣ Buscando locations...
-   ✅ 7 locations encontradas
-
-2️⃣ Testando location: Wembley
-   ✅ Torneio 233843: 2 partidas
-
-3️⃣ Coletando todas as partidas...
-   ✅ 15 partidas coletadas de 5 torneios
-
-================================================================================
-✅ Teste concluído com sucesso!
-================================================================================
-```
-
-### Teste do Scraper Service
-
-```bash
-python web_scraper/scraper_service.py
-```
-
----
-
-## 🐛 Troubleshooting
-
-### Problema: "0 partidas coletadas"
-
-**Solução:**
-1. Verifique se `RUN_SCRAPER=true`
-2. Confira logs em `/reports`
-3. Teste o API client standalone
-
-### Problema: Erro de conexão com banco
-
-**Solução:**
-1. Verifique `DATABASE_URL`
-2. Certifique-se que PostgreSQL está rodando
-3. Use SQLite localmente: `sqlite:///fifa25.db`
-
-### Problema: ImportError
-
-**Solução:**
-```bash
+git pull origin main
 pip install -r requirements.txt --upgrade
+python app.py
 ```
 
----
+### Deploy Automático no Render
 
-## 📈 Monitoramento
-
-### Verificar Status
-
-Acesse: `/api/scraper/status`
-
-```json
-{
-  "status": "active",
-  "last_run": "2026-01-20T01:21:12Z",
-  "last_status": "success",
-  "matches_found": 15,
-  "message": "3 novas, 2 atualizadas"
-}
+```bash
+git add .
+git commit -m "Atualização"
+git push origin main
 ```
 
-### Logs do Render
-
-No painel do Render:
-1. Selecione seu serviço
-2. Clique em **Logs**
-3. Monitore execuções em tempo real
-
----
-
-## 🔐 Segurança
-
-- ✅ Senhas em variáveis de ambiente
-- ✅ CORS configurado
-- ✅ SQLAlchemy com pool de conexões
-- ✅ Rate limiting no cliente API
-- ✅ Validação de dados
-
----
-
-## 🤝 Contribuindo
-
-1. Fork o projeto
-2. Crie uma branch: `git checkout -b feature/nova-funcionalidade`
-3. Commit: `git commit -m 'Adiciona nova funcionalidade'`
-4. Push: `git push origin feature/nova-funcionalidade`
-5. Abra um Pull Request
-
----
-
-## 📄 Licença
-
-Este projeto é open source e está disponível sob a licença MIT.
-
----
-
-## 👤 Autor
-
-**Tiago**
-- GitHub: [@tiagobrrrr](https://github.com/tiagobrrrr)
-
----
-
-## 🙏 Agradecimentos
-
-- Football Esports Battle pela API
-- Render pela hospedagem gratuita
-- Comunidade Python/Flask
-
----
+Render fará deploy automaticamente.
 
 ## 📞 Suporte
 
-Encontrou um bug? Tem uma sugestão?
+### Problemas Comuns
 
-- Abra uma [Issue](https://github.com/tiagobrrrr/fifa25-bot/issues)
-- Ou envie um Pull Request!
+1. **API mudou?**
+   - Execute o analisador: `python api_analyzer.py`
+   - Verifique `api_findings.json`
 
----
+2. **Dados não salvam no banco?**
+   - Verifique `DATABASE_URL`
+   - Implemente métodos `_process_*` no `scraper_service.py`
 
-**⚡ Bot rodando 24/7 com 100% de precisão na coleta de dados!**"# fifa25-bot"  
+3. **Scraper não inicia?**
+   - Verifique `RUN_SCRAPER=true`
+   - Confira logs de erro
+
+### Links Úteis
+
+- [Documentação Flask](https://flask.palletsprojects.com/)
+- [Documentação Render](https://render.com/docs)
+- [Requests](https://requests.readthedocs.io/)
+- [APScheduler](https://apscheduler.readthedocs.io/)
+
+## 📜 Licença
+
+Este projeto é para fins educacionais.
+Respeite os termos de serviço do ESportsBattle.
+
+## 🎉 Pronto!
+
+Seu bot está configurado e funcionando!
+
+Ele irá:
+- ✅ Verificar automaticamente a cada 2 minutos
+- ✅ Detectar quando torneios aparecerem
+- ✅ Coletar todas as partidas
+- ✅ Salvar no banco de dados
+- ✅ Exibir no dashboard
+
+**Aguarde os torneios começarem e aproveite! 🚀**

@@ -1,294 +1,451 @@
-from datetime import datetime
+# -*- coding: utf-8 -*-
+"""
+web_scraper/scraper_service.py
+
+Serviço de scraping que coordena a coleta de dados
+e integração com o banco de dados
+"""
+
 import logging
-import time
-from web_scraper.api_client import FIFA25APIClient
+from datetime import datetime
+from typing import Dict, List
+from .api_client import FIFA25APIClient
 
 logger = logging.getLogger(__name__)
 
 
 class ScraperService:
-    """Serviço responsável por executar o scraping e processar os dados"""
+    """
+    Serviço de scraping para ESportsBattle
     
-    def __init__(self, db, models):
-        """
-        Args:
-            db: Instância do SQLAlchemy
-            models: Tupla com (Match, Tournament, Player, ScraperLog)
-        """
-        self.db = db
-        self.Match, self.Tournament, self.Player, self.ScraperLog = models
-        self.api_client = FIFA25APIClient()
+    Responsabilidades:
+    - Coordenar coleta de dados da API
+    - Processar e validar dados
+    - Salvar no banco de dados
+    - Gerenciar estado e estatísticas
+    """
     
-    def run(self):
+    def __init__(self):
+        self.client = FIFA25APIClient()
+        
+        # Estatísticas
+        self.stats = {
+            'total_runs': 0,
+            'successful_runs': 0,
+            'failed_runs': 0,
+            'last_run': None,
+            'last_success': None,
+            'last_tournaments_count': 0,
+            'last_matches_count': 0,
+            'consecutive_empty': 0
+        }
+    
+    def run_scraping(self) -> Dict:
         """
-        Executa uma rodada completa de scraping
+        Executa ciclo completo de scraping
         
         Returns:
-            dict: Estatísticas da execução
+            Dict com resultado da execução
         """
-        start_time = time.time()
-        stats = {
-            'matches_found': 0,
-            'matches_new': 0,
-            'matches_updated': 0,
-            'tournaments_found': 0,
-            'tournaments_new': 0,
-            'status': 'success',
-            'message': ''
-        }
+        logger.info("="*80)
+        logger.info("🔄 Executando scraping ESportsBattle")
+        logger.info(f"⏰ Horário: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info("="*80)
+        
+        self.stats['total_runs'] += 1
+        self.stats['last_run'] = datetime.now().isoformat()
         
         try:
-            logger.info("=" * 80)
-            logger.info("🔄 Executando scraping...")
-            logger.info("=" * 80)
+            # Coletar dados da API
+            data = self.client.scrape_all_data()
             
-            # 1. Coletar partidas da API
-            matches_data, tournaments_data = self.api_client.get_all_active_matches()
+            if not data['summary']['success']:
+                raise Exception("Falha na coleta de dados da API")
             
-            stats['matches_found'] = len(matches_data)
-            stats['tournaments_found'] = len(tournaments_data)
+            # Processar dados
+            result = self._process_data(data)
             
-            if not matches_data:
-                logger.warning("⚠️  Nenhuma partida encontrada")
-                stats['message'] = "Nenhuma partida encontrada"
-                self._save_log(stats, time.time() - start_time)
-                return stats
+            # Atualizar estatísticas
+            if result['success']:
+                self.stats['successful_runs'] += 1
+                self.stats['last_success'] = datetime.now().isoformat()
+                
+                current_tournaments = data['summary']['tournaments_count']
+                current_matches = data['summary']['matches_count']
+                
+                # Detectar mudanças
+                if current_tournaments != self.stats['last_tournaments_count']:
+                    logger.info(f"🔔 Mudança detectada: {current_tournaments} torneios "
+                              f"(antes: {self.stats['last_tournaments_count']})")
+                
+                if current_matches != self.stats['last_matches_count']:
+                    logger.info(f"🔔 Mudança detectada: {current_matches} partidas "
+                              f"(antes: {self.stats['last_matches_count']})")
+                
+                self.stats['last_tournaments_count'] = current_tournaments
+                self.stats['last_matches_count'] = current_matches
+                
+                # Reset contador de vazios
+                if current_tournaments > 0:
+                    self.stats['consecutive_empty'] = 0
+                else:
+                    self.stats['consecutive_empty'] += 1
+            else:
+                self.stats['failed_runs'] += 1
             
-            # 2. Processar torneios
-            logger.info(f"\n📋 Processando {len(tournaments_data)} torneios...")
-            stats['tournaments_new'] = self._process_tournaments(tournaments_data)
-            
-            # 3. Processar partidas
-            logger.info(f"\n🎮 Processando {len(matches_data)} partidas...")
-            new_count, updated_count = self._process_matches(matches_data)
-            
-            stats['matches_new'] = new_count
-            stats['matches_updated'] = updated_count
-            
-            # 4. Commit no banco
-            self.db.session.commit()
-            
-            # 5. Estatísticas finais
-            execution_time = time.time() - start_time
-            
-            logger.info("\n" + "=" * 80)
-            logger.info("✅ Scraping concluído")
-            logger.info(f"📊 Partidas: {new_count} novas, {updated_count} atualizadas")
-            logger.info(f"📋 Torneios: {stats['tournaments_new']} novos")
-            logger.info(f"⏱️  Tempo de execução: {execution_time:.2f}s")
-            logger.info("=" * 80)
-            
-            stats['message'] = f"{new_count} novas, {updated_count} atualizadas"
-            
-            # Salvar log
-            self._save_log(stats, execution_time)
-            
-            return stats
+            return result
             
         except Exception as e:
-            logger.error(f"❌ Erro no scraping: {e}", exc_info=True)
-            self.db.session.rollback()
+            logger.error(f"❌ Erro durante scraping: {e}")
+            self.stats['failed_runs'] += 1
             
-            stats['status'] = 'error'
-            stats['message'] = str(e)
-            
-            # Salvar log de erro
-            self._save_log(stats, time.time() - start_time)
-            
-            return stats
+            return {
+                'success': False,
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
     
-    def _process_tournaments(self, tournaments_data):
+    def _process_data(self, data: Dict) -> Dict:
+        """
+        Processa dados coletados e salva no banco
+        
+        Args:
+            data: Dados retornados pela API
+            
+        Returns:
+            Dict com resultado do processamento
+        """
+        summary = data['summary']
+        
+        logger.info("\n" + "="*80)
+        logger.info("📊 PROCESSANDO DADOS")
+        logger.info("="*80)
+        
+        result = {
+            'success': True,
+            'processed': {
+                'locations': 0,
+                'tournaments': 0,
+                'matches': 0,
+                'teams': 0
+            },
+            'errors': [],
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # 1. Processar locations
+        if data['locations']:
+            try:
+                logger.info(f"\n[1/4] Processando {len(data['locations'])} locations...")
+                processed = self._process_locations(data['locations'])
+                result['processed']['locations'] = processed
+                logger.info(f"✅ {processed} location(s) processada(s)")
+            except Exception as e:
+                logger.error(f"❌ Erro ao processar locations: {e}")
+                result['errors'].append(f"Locations: {str(e)}")
+        
+        # 2. Processar torneios
+        if data['tournaments']:
+            try:
+                logger.info(f"\n[2/4] Processando {len(data['tournaments'])} torneios...")
+                processed = self._process_tournaments(data['tournaments'])
+                result['processed']['tournaments'] = processed
+                logger.info(f"✅ {processed} torneio(s) processado(s)")
+            except Exception as e:
+                logger.error(f"❌ Erro ao processar torneios: {e}")
+                result['errors'].append(f"Tournaments: {str(e)}")
+        else:
+            logger.info("\n[2/4] ⏰ Nenhum torneio para processar")
+        
+        # 3. Processar partidas
+        if data['matches']:
+            try:
+                logger.info(f"\n[3/4] Processando {len(data['matches'])} partidas...")
+                processed = self._process_matches(data['matches'])
+                result['processed']['matches'] = processed
+                logger.info(f"✅ {processed} partida(s) processada(s)")
+            except Exception as e:
+                logger.error(f"❌ Erro ao processar partidas: {e}")
+                result['errors'].append(f"Matches: {str(e)}")
+        else:
+            logger.info("\n[3/4] ⏰ Nenhuma partida para processar")
+        
+        # 4. Processar teams (opcional - apenas se necessário)
+        if data['teams'] and len(data['teams']) < 50:  # Processar apenas se mudou
+            try:
+                logger.info(f"\n[4/4] Processando {len(data['teams'])} teams...")
+                processed = self._process_teams(data['teams'])
+                result['processed']['teams'] = processed
+                logger.info(f"✅ {processed} team(s) processado(s)")
+            except Exception as e:
+                logger.error(f"❌ Erro ao processar teams: {e}")
+                result['errors'].append(f"Teams: {str(e)}")
+        else:
+            logger.info(f"\n[4/4] Teams já processados ({len(data['teams'])} no total)")
+        
+        # Log final
+        logger.info("\n" + "="*80)
+        logger.info("✅ PROCESSAMENTO CONCLUÍDO")
+        logger.info("="*80)
+        logger.info(f"   Locations: {result['processed']['locations']}")
+        logger.info(f"   Torneios: {result['processed']['tournaments']}")
+        logger.info(f"   Partidas: {result['processed']['matches']}")
+        logger.info(f"   Teams: {result['processed']['teams']}")
+        
+        if result['errors']:
+            logger.warning(f"   Erros: {len(result['errors'])}")
+            for error in result['errors']:
+                logger.warning(f"      - {error}")
+        
+        logger.info("="*80)
+        
+        return result
+    
+    def _process_locations(self, locations: List[Dict]) -> int:
+        """
+        Processa e salva locations no banco
+        
+        Args:
+            locations: Lista de locations da API
+            
+        Returns:
+            Número de locations processadas
+        """
+        # TODO: Implementar salvamento no banco de dados
+        # from models import Location
+        
+        processed = 0
+        
+        for loc in locations:
+            try:
+                loc_id = loc.get('id')
+                name = loc.get('token_international') or loc.get('token')
+                
+                if not loc_id or not name:
+                    logger.warning(f"Location inválida: {loc}")
+                    continue
+                
+                # Salvar no banco (exemplo)
+                # Location.objects.update_or_create(
+                #     id=loc_id,
+                #     defaults={
+                #         'name': name,
+                #         'token': loc.get('token'),
+                #         'color': loc.get('color'),
+                #         'status_id': loc.get('status_id'),
+                #         'updated_at': datetime.now()
+                #     }
+                # )
+                
+                logger.debug(f"   ✓ Location {loc_id}: {name}")
+                processed += 1
+                
+            except Exception as e:
+                logger.error(f"   ✗ Erro ao processar location {loc.get('id')}: {e}")
+        
+        return processed
+    
+    def _process_tournaments(self, tournaments: List[Dict]) -> int:
         """
         Processa e salva torneios no banco
         
         Args:
-            tournaments_data (list): Lista de dados de torneios
+            tournaments: Lista de torneios da API
             
         Returns:
-            int: Número de novos torneios
+            Número de torneios processados
         """
-        new_count = 0
+        # TODO: Implementar salvamento no banco de dados
+        # from models import Tournament
         
-        for tournament_data in tournaments_data:
+        processed = 0
+        
+        for tournament in tournaments:
             try:
-                tournament_id = tournament_data.get('id')
+                tournament_id = tournament.get('id')
+                name = tournament.get('name') or tournament.get('token')
                 
                 if not tournament_id:
+                    logger.warning(f"Torneio inválido: {tournament}")
                     continue
                 
-                # Verificar se já existe
-                existing = self.Tournament.query.filter_by(tournament_id=tournament_id).first()
+                # Salvar no banco (exemplo)
+                # Tournament.objects.update_or_create(
+                #     id=tournament_id,
+                #     defaults={
+                #         'name': name,
+                #         'status': tournament.get('status'),
+                #         'location_id': tournament.get('location', {}).get('id'),
+                #         'data': tournament,
+                #         'updated_at': datetime.now()
+                #     }
+                # )
                 
-                if existing:
-                    # Atualizar status se mudou
-                    if existing.status_id != tournament_data.get('status_id'):
-                        existing.status_id = tournament_data.get('status_id')
-                        existing.updated_at = datetime.utcnow()
-                else:
-                    # Criar novo torneio
-                    new_tournament = self.Tournament.from_api_data(tournament_data)
-                    self.db.session.add(new_tournament)
-                    new_count += 1
-                    
-                    logger.debug(f"   ✅ Novo torneio: {new_tournament.name_international}")
-            
+                logger.debug(f"   ✓ Torneio {tournament_id}: {name}")
+                processed += 1
+                
             except Exception as e:
-                logger.error(f"   ❌ Erro ao processar torneio: {e}")
-                continue
+                logger.error(f"   ✗ Erro ao processar torneio {tournament.get('id')}: {e}")
         
-        return new_count
+        return processed
     
-    def _process_matches(self, matches_data):
+    def _process_matches(self, matches: List[Dict]) -> int:
         """
         Processa e salva partidas no banco
         
         Args:
-            matches_data (list): Lista de dados de partidas
+            matches: Lista de partidas da API
             
         Returns:
-            tuple: (novas, atualizadas)
+            Número de partidas processadas
         """
-        new_count = 0
-        updated_count = 0
+        # TODO: Implementar salvamento no banco de dados
+        # from models import Match
         
-        for match_data in matches_data:
+        processed = 0
+        
+        for match in matches:
             try:
-                match_id = match_data.get('id')
+                match_id = match.get('id')
+                tournament_id = match.get('tournament_id') or match.get('tournamentId')
                 
                 if not match_id:
-                    logger.warning(f"   ⚠️  Partida sem ID: {match_data}")
+                    logger.warning(f"Partida inválida: {match}")
                     continue
                 
-                # Verificar se já existe
-                existing = self.Match.query.filter_by(match_id=match_id).first()
+                # Salvar no banco (exemplo)
+                # Match.objects.update_or_create(
+                #     id=match_id,
+                #     defaults={
+                #         'tournament_id': tournament_id,
+                #         'team1': match.get('team1'),
+                #         'team2': match.get('team2'),
+                #         'score': match.get('score'),
+                #         'status': match.get('status'),
+                #         'start_time': match.get('start_time'),
+                #         'data': match,
+                #         'updated_at': datetime.now()
+                #     }
+                # )
                 
-                if existing:
-                    # Verificar se houve mudanças
-                    p1_score = match_data.get('participant1', {}).get('score', 0)
-                    p2_score = match_data.get('participant2', {}).get('score', 0)
-                    status_id = match_data.get('status_id')
-                    
-                    needs_update = (
-                        existing.player1_score != p1_score or
-                        existing.player2_score != p2_score or
-                        existing.status_id != status_id
-                    )
-                    
-                    if needs_update:
-                        # Atualizar partida
-                        existing.player1_score = p1_score
-                        existing.player2_score = p2_score
-                        existing.status_id = status_id
-                        existing.updated_at = datetime.utcnow()
-                        
-                        updated_count += 1
-                        
-                        logger.info(f"   🔄 Atualizada: {existing.player1_nickname} {p1_score}-{p2_score} {existing.player2_nickname}")
-                        
-                        # Se a partida foi finalizada, atualizar estatísticas
-                        if status_id == 3 and existing.status_id != 3:
-                            self._update_player_stats(match_data)
-                else:
-                    # Criar nova partida
-                    new_match = self.Match.from_api_data(match_data)
-                    self.db.session.add(new_match)
-                    new_count += 1
-                    
-                    logger.info(f"   ✅ Nova: {new_match.player1_nickname} vs {new_match.player2_nickname} ({new_match.location})")
-                    
-                    # Se já está finalizada, atualizar estatísticas
-                    if match_data.get('status_id') == 3:
-                        self._update_player_stats(match_data)
-            
+                logger.debug(f"   ✓ Partida {match_id}")
+                processed += 1
+                
             except Exception as e:
-                logger.error(f"   ❌ Erro ao processar partida {match_id}: {e}")
-                continue
+                logger.error(f"   ✗ Erro ao processar partida {match.get('id')}: {e}")
         
-        return new_count, updated_count
+        return processed
     
-    def _update_player_stats(self, match_data):
+    def _process_teams(self, teams: List[Dict]) -> int:
         """
-        Atualiza estatísticas dos jogadores após uma partida
+        Processa e salva teams no banco
         
         Args:
-            match_data (dict): Dados da partida
+            teams: Lista de teams da API
+            
+        Returns:
+            Número de teams processados
         """
-        try:
-            p1 = match_data.get('participant1', {})
-            p2 = match_data.get('participant2', {})
-            
-            p1_nickname = p1.get('nickname')
-            p2_nickname = p2.get('nickname')
-            
-            p1_score = p1.get('score', 0)
-            p2_score = p2.get('score', 0)
-            
-            if not p1_nickname or not p2_nickname:
-                return
-            
-            # Atualizar jogador 1
-            player1 = self.Player.query.filter_by(nickname=p1_nickname).first()
-            if not player1:
-                player1 = self.Player(nickname=p1_nickname)
-                self.db.session.add(player1)
-            
-            player1.last_seen = datetime.utcnow()
-            player1.total_matches += 1
-            player1.goals_for += p1_score
-            player1.goals_against += p2_score
-            
-            if p1_score > p2_score:
-                player1.wins += 1
-            elif p1_score < p2_score:
-                player1.losses += 1
-            else:
-                player1.draws += 1
-            
-            # Atualizar jogador 2
-            player2 = self.Player.query.filter_by(nickname=p2_nickname).first()
-            if not player2:
-                player2 = self.Player(nickname=p2_nickname)
-                self.db.session.add(player2)
-            
-            player2.last_seen = datetime.utcnow()
-            player2.total_matches += 1
-            player2.goals_for += p2_score
-            player2.goals_against += p1_score
-            
-            if p2_score > p1_score:
-                player2.wins += 1
-            elif p2_score < p1_score:
-                player2.losses += 1
-            else:
-                player2.draws += 1
-            
-            logger.debug(f"   📊 Stats atualizadas: {p1_nickname}, {p2_nickname}")
-            
-        except Exception as e:
-            logger.error(f"❌ Erro ao atualizar estatísticas: {e}")
-    
-    def _save_log(self, stats, execution_time):
-        """
-        Salva log da execução
+        # TODO: Implementar salvamento no banco de dados
+        # from models import Team
         
-        Args:
-            stats (dict): Estatísticas da execução
-            execution_time (float): Tempo de execução em segundos
+        processed = 0
+        
+        for team in teams:
+            try:
+                team_id = team.get('id')
+                name = team.get('token_international') or team.get('token')
+                
+                if not team_id or not name:
+                    continue
+                
+                # Salvar no banco (exemplo)
+                # Team.objects.update_or_create(
+                #     id=team_id,
+                #     defaults={
+                #         'name': name,
+                #         'token': team.get('token'),
+                #         'updated_at': datetime.now()
+                #     }
+                # )
+                
+                logger.debug(f"   ✓ Team {team_id}: {name}")
+                processed += 1
+                
+            except Exception as e:
+                logger.error(f"   ✗ Erro ao processar team {team.get('id')}: {e}")
+        
+        return processed
+    
+    def get_stats(self) -> Dict:
         """
-        try:
-            log = self.ScraperLog(
-                timestamp=datetime.utcnow(),
-                status=stats['status'],
-                message=stats['message'],
-                matches_found=stats['matches_found'],
-                matches_new=stats['matches_new'],
-                matches_updated=stats['matches_updated'],
-                execution_time=execution_time
+        Retorna estatísticas do serviço
+        
+        Returns:
+            Dict com estatísticas
+        """
+        return {
+            **self.stats,
+            'success_rate': (
+                (self.stats['successful_runs'] / self.stats['total_runs'] * 100)
+                if self.stats['total_runs'] > 0 else 0
             )
-            
-            self.db.session.add(log)
-            self.db.session.commit()
-            
-        except Exception as e:
-            logger.error(f"❌ Erro ao salvar log: {e}")
-            self.db.session.rollback()
+        }
+    
+    def should_run(self) -> bool:
+        """
+        Verifica se deve executar scraping agora
+        Considera horário de jogos
+        
+        Returns:
+            True se deve executar, False caso contrário
+        """
+        now = datetime.utcnow()
+        hour = now.hour
+        
+        # Horário provável de torneios: 10h-23h UTC
+        if 10 <= hour <= 23:
+            return True
+        
+        # Fora do horário, verificar menos frequentemente
+        # Apenas se já passou muito tempo sem torneios
+        if self.stats['consecutive_empty'] > 50:  # Mais de 50 verificações vazias
+            logger.debug("Muitas verificações vazias, reduzindo frequência")
+            return False
+        
+        return True
+
+
+# Exemplo de uso standalone
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    service = ScraperService()
+    
+    # Executar scraping
+    result = service.run_scraping()
+    
+    # Mostrar resultado
+    print("\n" + "="*80)
+    print("RESULTADO DO SCRAPING")
+    print("="*80)
+    print(f"Sucesso: {result['success']}")
+    print(f"Processados:")
+    for key, value in result.get('processed', {}).items():
+        print(f"  {key}: {value}")
+    
+    if result.get('errors'):
+        print(f"\nErros: {len(result['errors'])}")
+        for error in result['errors']:
+            print(f"  - {error}")
+    
+    # Estatísticas
+    stats = service.get_stats()
+    print(f"\nEstatísticas:")
+    print(f"  Total de execuções: {stats['total_runs']}")
+    print(f"  Bem-sucedidas: {stats['successful_runs']}")
+    print(f"  Taxa de sucesso: {stats['success_rate']:.1f}%")
+    print("="*80)

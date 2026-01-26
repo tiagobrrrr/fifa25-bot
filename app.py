@@ -1,412 +1,255 @@
-from flask import Flask, render_template, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
-from datetime import datetime, timedelta
+# -*- coding: utf-8 -*-
+"""
+app.py
+
+Aplicação principal Flask com scheduler para scraping periódico
+"""
+
 import os
 import logging
-import pytz
+from flask import Flask, render_template, jsonify
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime
+from web_scraper.scraper_service import ScraperService
 
-# Configuração de logging
+# Configurar logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log', encoding='utf-8')
+    ]
 )
+
 logger = logging.getLogger(__name__)
 
-# Inicialização do Flask
+# Criar aplicação Flask
 app = Flask(__name__)
-CORS(app)
-
-# Configurações
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///fifa25.db')
 
-# Timezone de Brasília
-BRAZIL_TZ = pytz.timezone('America/Sao_Paulo')
+# Criar serviço de scraping
+scraper_service = ScraperService()
 
-# Fix para Heroku/Render (postgres:// -> postgresql://)
-if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
-    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
-
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_pre_ping': True,
-    'pool_recycle': 300,
+# Estado da aplicação
+app_state = {
+    'status': 'initializing',
+    'last_scrape': None,
+    'last_result': None,
+    'scheduler_running': False
 }
 
-# Inicialização do banco de dados
-db = SQLAlchemy(app)
 
-# Import e criação dos models DEPOIS do db ser criado
-from models import create_models
-Match, Tournament, Player, ScraperLog = create_models(db)
+def run_scheduled_scrape():
+    """
+    Executa scraping agendado
+    Chamado pelo scheduler
+    """
+    try:
+        logger.info("🔄 Iniciando scraping agendado...")
+        
+        # Verificar se deve executar
+        if not scraper_service.should_run():
+            logger.info("⏰ Fora do horário de torneios, aguardando...")
+            return
+        
+        # Executar scraping
+        result = scraper_service.run_scraping()
+        
+        # Atualizar estado
+        app_state['last_scrape'] = datetime.now().isoformat()
+        app_state['last_result'] = result
+        app_state['status'] = 'running'
+        
+        # Log resumo
+        if result['success']:
+            processed = result.get('processed', {})
+            logger.info(f"✅ Scraping concluído: "
+                       f"{processed.get('tournaments', 0)} torneios, "
+                       f"{processed.get('matches', 0)} partidas")
+        else:
+            logger.error(f"❌ Scraping falhou: {result.get('error')}")
+        
+    except Exception as e:
+        logger.error(f"❌ Erro no scraping agendado: {e}")
+        app_state['status'] = 'error'
 
-# ==================== ROTAS WEB ====================
 
+# Configurar scheduler
+scheduler = BackgroundScheduler()
+
+# Obter intervalo de scraping das variáveis de ambiente
+SCAN_INTERVAL = int(os.environ.get('SCAN_INTERVAL', 120))  # Padrão: 120 segundos (2 minutos)
+RUN_SCRAPER = os.environ.get('RUN_SCRAPER', 'true').lower() == 'true'
+
+if RUN_SCRAPER:
+    logger.info(f"✅ Scheduler configurado: intervalo de {SCAN_INTERVAL}s")
+    scheduler.add_job(
+        func=run_scheduled_scrape,
+        trigger='interval',
+        seconds=SCAN_INTERVAL,
+        id='scraper_job',
+        name='Scraper de partidas FIFA25',
+        replace_existing=True
+    )
+    scheduler.start()
+    app_state['scheduler_running'] = True
+    logger.info("✅ Scheduler iniciado")
+else:
+    logger.warning("⚠️  Scraper desabilitado (RUN_SCRAPER=false)")
+
+
+# Rotas Flask
 @app.route('/')
 def index():
     """Página principal - Dashboard"""
     try:
-        # Estatísticas gerais
-        total_matches = Match.query.count()
-        total_players = Player.query.count()
-        live_matches = Match.query.filter_by(status_id=2).count()
+        # Obter estatísticas
+        stats = scraper_service.get_stats()
         
-        # Última execução do scraper (converter para horário de Brasília)
-        last_scan = ScraperLog.query.order_by(ScraperLog.timestamp.desc()).first()
-        if last_scan and last_scan.timestamp:
-            # Converter UTC para Brasília
-            utc_time = last_scan.timestamp.replace(tzinfo=pytz.UTC)
-            last_scan.timestamp = utc_time.astimezone(BRAZIL_TZ)
-        
-        # Top 10 jogadores
-        top_players = Player.query.filter(
-            Player.total_matches >= 3
-        ).order_by(
-            Player.wins.desc()
-        ).limit(10).all()
+        # Obter resumo atual da API
+        from web_scraper.api_client import FIFA25APIClient
+        client = FIFA25APIClient()
+        summary = client.get_summary()
         
         return render_template('dashboard.html',
-            total_matches=total_matches,
-            total_players=total_players,
-            live_matches=live_matches,
-            last_scan=last_scan,
-            top_players=top_players
-        )
+                             app_state=app_state,
+                             stats=stats,
+                             summary=summary)
     except Exception as e:
-        logger.error(f"Erro na página inicial: {e}", exc_info=True)
-        return render_template('error.html', error=str(e)), 500
+        logger.error(f"Erro ao renderizar dashboard: {e}")
+        return f"Erro: {e}", 500
 
 
-@app.route('/matches')
-def matches():
-    """Página de partidas"""
+@app.route('/api/status')
+def api_status():
+    """API endpoint - Status da aplicação"""
+    stats = scraper_service.get_stats()
+    
+    return jsonify({
+        'status': app_state['status'],
+        'scheduler_running': app_state['scheduler_running'],
+        'scan_interval': SCAN_INTERVAL,
+        'last_scrape': app_state['last_scrape'],
+        'last_result': app_state['last_result'],
+        'stats': stats,
+        'timestamp': datetime.now().isoformat()
+    })
+
+
+@app.route('/api/scrape/now')
+def api_scrape_now():
+    """API endpoint - Executar scraping manualmente"""
     try:
-        page = request.args.get('page', 1, type=int)
-        per_page = 50
+        logger.info("🔄 Scraping manual solicitado")
+        result = scraper_service.run_scraping()
         
-        # Filtros
-        status = request.args.get('status', 'all')
-        location = request.args.get('location', 'all')
+        app_state['last_scrape'] = datetime.now().isoformat()
+        app_state['last_result'] = result
         
-        query = Match.query
-        
-        if status != 'all':
-            query = query.filter_by(status_id=int(status))
-        
-        if location != 'all':
-            query = query.filter_by(location=location)
-        
-        matches_pagination = query.order_by(
-            Match.date.desc()
-        ).paginate(page=page, per_page=per_page, error_out=False)
-        
-        # Locations disponíveis
-        locations = db.session.query(Match.location).distinct().all()
-        locations = [loc[0] for loc in locations]
-        
-        return render_template('matches.html',
-            matches=matches_pagination.items,
-            pagination=matches_pagination,
-            locations=locations,
-            current_status=status,
-            current_location=location
-        )
+        return jsonify({
+            'success': True,
+            'result': result,
+            'timestamp': datetime.now().isoformat()
+        })
     except Exception as e:
-        logger.error(f"Erro na página de partidas: {e}", exc_info=True)
-        return render_template('error.html', error=str(e)), 500
+        logger.error(f"Erro no scraping manual: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 
-@app.route('/players')
-def players():
-    """Página de jogadores"""
+@app.route('/api/summary')
+def api_summary():
+    """API endpoint - Resumo dos dados"""
     try:
-        page = request.args.get('page', 1, type=int)
-        per_page = 30
+        from web_scraper.api_client import FIFA25APIClient
+        client = FIFA25APIClient()
+        summary = client.get_summary()
         
-        players_pagination = Player.query.filter(
-            Player.total_matches > 0
-        ).order_by(
-            Player.wins.desc()
-        ).paginate(page=page, per_page=per_page, error_out=False)
-        
-        return render_template('players.html',
-            players=players_pagination.items,
-            pagination=players_pagination
-        )
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'timestamp': datetime.now().isoformat()
+        })
     except Exception as e:
-        logger.error(f"Erro na página de jogadores: {e}", exc_info=True)
-        return render_template('error.html', error=str(e)), 500
-
-
-@app.route('/reports')
-def reports():
-    """Página de relatórios"""
-    try:
-        # Logs do scraper
-        logs = ScraperLog.query.order_by(
-            ScraperLog.timestamp.desc()
-        ).limit(100).all()
-        
-        return render_template('reports.html', logs=logs)
-    except Exception as e:
-        logger.error(f"Erro na página de relatórios: {e}", exc_info=True)
-        return render_template('error.html', error=str(e)), 500
-
-
-# ==================== API ENDPOINTS ====================
-
-@app.route('/api/matches/live')
-def api_live_matches():
-    """API: Retorna partidas ao vivo"""
-    try:
-        matches = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).all()
-        
-        return jsonify([{
-            'id': m.match_id,
-            'location': m.location,
-            'player1': m.player1_nickname,
-            'player2': m.player2_nickname,
-            'score': f"{m.player1_score} - {m.player2_score}",
-            'team1': m.player1_team,
-            'team2': m.player2_team,
-            'stream_url': m.stream_url,
-            'date': m.date.isoformat()
-        } for m in matches])
-    except Exception as e:
-        logger.error(f"Erro API live matches: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/matches/today')
-def api_today_matches():
-    """API: Retorna partidas do dia"""
-    try:
-        today = datetime.utcnow().date()
-        matches = Match.query.filter(
-            db.func.date(Match.date) == today
-        ).order_by(Match.date.desc()).all()
-        
-        return jsonify([{
-            'id': m.match_id,
-            'date': m.date.isoformat(),
-            'location': m.location,
-            'player1': m.player1_nickname,
-            'player2': m.player2_nickname,
-            'score': f"{m.player1_score} - {m.player2_score}",
-            'status': 'live' if m.status_id == 2 else 'finished' if m.status_id == 3 else 'scheduled'
-        } for m in matches])
-    except Exception as e:
-        logger.error(f"Erro API today matches: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/matches/recent')
-def api_recent_matches():
-    """API: Retorna partidas recentes"""
-    try:
-        limit = request.args.get('limit', 20, type=int)
-        matches = Match.query.order_by(Match.date.desc()).limit(limit).all()
-        
-        return jsonify([{
-            'id': m.match_id,
-            'date': m.date.isoformat(),
-            'location': m.location,
-            'player1': m.player1_nickname,
-            'player2': m.player2_nickname,
-            'score': f"{m.player1_score} - {m.player2_score}",
-            'team1': m.player1_team,
-            'team2': m.player2_team,
-            'status': m.status_id
-        } for m in matches])
-    except Exception as e:
-        logger.error(f"Erro API recent matches: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/players/ranking')
-def api_player_ranking():
-    """API: Retorna ranking de jogadores"""
-    try:
-        min_matches = request.args.get('min_matches', 5, type=int)
-        limit = request.args.get('limit', 50, type=int)
-        
-        players = Player.query.filter(
-            Player.total_matches >= min_matches
-        ).order_by(
-            Player.wins.desc()
-        ).limit(limit).all()
-        
-        return jsonify([{
-            'rank': idx + 1,
-            'nickname': p.nickname,
-            'matches': p.total_matches,
-            'wins': p.wins,
-            'draws': p.draws,
-            'losses': p.losses,
-            'goals_for': p.goals_for,
-            'goals_against': p.goals_against,
-            'goal_diff': p.goal_difference,
-            'win_rate': round(p.win_rate, 2)
-        } for idx, p in enumerate(players)])
-    except Exception as e:
-        logger.error(f"Erro API player ranking: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Erro ao obter resumo: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 
 @app.route('/api/stats')
 def api_stats():
-    """API: Estatísticas gerais"""
+    """API endpoint - Estatísticas do scraper"""
+    stats = scraper_service.get_stats()
+    
+    return jsonify({
+        'success': True,
+        'stats': stats,
+        'timestamp': datetime.now().isoformat()
+    })
+
+
+@app.route('/health')
+def health():
+    """Health check para Render"""
+    return jsonify({
+        'status': 'healthy',
+        'scheduler': app_state['scheduler_running'],
+        'timestamp': datetime.now().isoformat()
+    })
+
+
+# Executar primeira verificação ao iniciar
+@app.before_first_request
+def initial_scrape():
+    """Executa scraping inicial ao iniciar a aplicação"""
+    logger.info("🚀 Executando scraping inicial...")
     try:
-        total_matches = Match.query.count()
-        total_players = Player.query.count()
-        live_matches = Match.query.filter_by(status_id=2).count()
-        today_matches = Match.query.filter(
-            db.func.date(Match.date) == datetime.utcnow().date()
-        ).count()
-        
-        last_scan = ScraperLog.query.order_by(ScraperLog.timestamp.desc()).first()
-        
-        return jsonify({
-            'total_matches': total_matches,
-            'total_players': total_players,
-            'live_matches': live_matches,
-            'today_matches': today_matches,
-            'last_scan': last_scan.timestamp.isoformat() if last_scan else None,
-            'last_scan_status': last_scan.status if last_scan else None
-        })
+        result = scraper_service.run_scraping()
+        app_state['last_scrape'] = datetime.now().isoformat()
+        app_state['last_result'] = result
+        app_state['status'] = 'running'
+        logger.info("✅ Scraping inicial concluído")
     except Exception as e:
-        logger.error(f"Erro API stats: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ Erro no scraping inicial: {e}")
+        app_state['status'] = 'error'
 
 
-@app.route('/api/scraper/status')
-def api_scraper_status():
-    """API: Status do scraper"""
-    try:
-        last_log = ScraperLog.query.order_by(ScraperLog.timestamp.desc()).first()
-        
-        if not last_log:
-            return jsonify({
-                'status': 'unknown',
-                'message': 'Nenhuma execução registrada'
-            })
-        
-        # Verificar se está rodando recentemente (últimos 2 minutos)
-        time_diff = datetime.utcnow() - last_log.timestamp
-        is_active = time_diff.total_seconds() < 120
-        
-        return jsonify({
-            'status': 'active' if is_active else 'idle',
-            'last_run': last_log.timestamp.isoformat(),
-            'last_status': last_log.status,
-            'matches_found': last_log.matches_found,
-            'message': last_log.message
-        })
-    except Exception as e:
-        logger.error(f"Erro API scraper status: {e}")
-        return jsonify({'error': str(e)}), 500
+# Cleanup ao encerrar
+def shutdown_scheduler():
+    """Encerra o scheduler gracefully"""
+    if scheduler.running:
+        logger.info("🛑 Encerrando scheduler...")
+        scheduler.shutdown()
+        logger.info("✅ Scheduler encerrado")
 
 
-# ==================== FUNÇÕES AUXILIARES ====================
-
-def cleanup_old_data():
-    """Limpa dados antigos do banco"""
-    with app.app_context():
-        try:
-            # Remover partidas com mais de 30 dias
-            cutoff_date = datetime.utcnow() - timedelta(days=30)
-            deleted = Match.query.filter(Match.date < cutoff_date).delete()
-            
-            # Remover logs com mais de 7 dias
-            log_cutoff = datetime.utcnow() - timedelta(days=7)
-            deleted_logs = ScraperLog.query.filter(ScraperLog.timestamp < log_cutoff).delete()
-            
-            db.session.commit()
-            logger.info(f"🗑️  Limpeza: {deleted} partidas e {deleted_logs} logs removidos")
-        except Exception as e:
-            logger.error(f"Erro na limpeza: {e}")
-            db.session.rollback()
+import atexit
+atexit.register(shutdown_scheduler)
 
 
-def run_scraper_job():
-    """Executa o scraper (chamado pelo scheduler)"""
-    with app.app_context():
-        try:
-            from web_scraper.scraper_service import ScraperService
-            # Passar os models como tupla
-            models = (Match, Tournament, Player, ScraperLog)
-            scraper = ScraperService(db, models)
-            scraper.run()
-        except Exception as e:
-            logger.error(f"Erro ao executar scraper: {e}", exc_info=True)
-
-
-# ==================== INICIALIZAÇÃO DO SCHEDULER ====================
-
-def init_scheduler():
-    """Inicializa o scheduler do APScheduler"""
-    from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.interval import IntervalTrigger
-    import atexit
-    
-    scheduler = BackgroundScheduler()
-    
-    # Intervalo de scraping (padrão: 60 segundos - evitar overlap com scan longo)
-    scan_interval = int(os.environ.get('SCAN_INTERVAL', 60))
-    run_scraper = os.environ.get('RUN_SCRAPER', 'true').lower() == 'true'
-    
-    if run_scraper:
-        scheduler.add_job(
-            func=run_scraper_job,  # Função wrapper com contexto
-            trigger=IntervalTrigger(seconds=scan_interval),
-            id='run_scraper',
-            name='Scraper de partidas FIFA25',
-            replace_existing=True
-        )
-        logger.info(f"✅ Scheduler configurado: scraping a cada {scan_interval}s")
-    else:
-        logger.info("⚠️  Scraper desabilitado (RUN_SCRAPER=false)")
-    
-    # Job de limpeza semanal (domingo às 3h UTC)
-    scheduler.add_job(
-        func=cleanup_old_data,
-        trigger='cron',
-        day_of_week='sun',
-        hour=3,
-        id='weekly_cleanup',
-        name='Limpeza semanal',
-        replace_existing=True
-    )
-    
-    scheduler.start()
-    logger.info("✅ Scheduler iniciado")
-    
-    # Shutdown ao fechar
-    atexit.register(lambda: scheduler.shutdown())
-    
-    return scheduler
-
-
-# ==================== INICIALIZAÇÃO DO APP ====================
-
-# Criar tabelas e iniciar scheduler
-with app.app_context():
-    try:
-        # Criar tabelas
-        db.create_all()
-        logger.info("✅ Banco de dados inicializado")
-        
-    except Exception as e:
-        logger.error(f"❌ Erro na inicialização do banco: {e}", exc_info=True)
-
-# Iniciar scheduler (fora do contexto)
-try:
-    scheduler = init_scheduler()
-except Exception as e:
-    logger.error(f"❌ Erro ao iniciar scheduler: {e}", exc_info=True)
-
-
+# Iniciar aplicação
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    debug = os.environ.get('FLASK_ENV') == 'development'
+    
+    logger.info("="*80)
+    logger.info("🚀 FIFA25 Bot - ESportsBattle Scraper")
+    logger.info("="*80)
+    logger.info(f"   Porta: {port}")
+    logger.info(f"   Debug: {debug}")
+    logger.info(f"   Scraper: {'Ativo' if RUN_SCRAPER else 'Inativo'}")
+    logger.info(f"   Intervalo: {SCAN_INTERVAL}s")
+    logger.info("="*80)
+    
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=debug
+    )
