@@ -1,9 +1,17 @@
+# -*- coding: utf-8 -*-
 """
-FIFA25 Web Scraper Module
-Módulo responsável por scraping de dados do Football Esports Battle
+Web Scraper Package
+ESportsBattle FIFA25 Bot
 """
 
-from .api_client import FIFA25APIClient
+from .api_client import FIFA25APIClient, FIFA25Scraper
 from .scraper_service import ScraperService
 
-__all__ = ['FIFA25APIClient', 'ScraperService']
+__version__ = '2.0.0'
+__author__ = 'FIFA25 Bot Team'
+
+__all__ = [
+    'FIFA25APIClient',
+    'FIFA25Scraper',
+    'ScraperService'
+]

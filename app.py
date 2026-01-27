@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-app.py
-
-Aplicação principal Flask com scheduler para scraping periódico
+app.py - Aplicação Flask Principal
+VERSÃO FINAL ATUALIZADA com novos endpoints
 """
 
 import os
@@ -27,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Criar aplicação Flask
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key-change-in-production')
+app.config['JSON_AS_ASCII'] = False  # Suporte a UTF-8 no JSON
 
 # Criar serviço de scraping
 scraper_service = ScraperService()
@@ -43,12 +43,12 @@ app_state = {
 def run_scheduled_scrape():
     """
     Executa scraping agendado
-    Chamado pelo scheduler
+    Chamado pelo scheduler a cada X segundos
     """
     try:
-        logger.info("🔄 Iniciando scraping agendado...")
+        logger.info("🔄 Scraping agendado iniciando...")
         
-        # Verificar se deve executar
+        # Verificar se deve executar (horário de jogos)
         if not scraper_service.should_run():
             logger.info("⏰ Fora do horário de torneios, aguardando...")
             return
@@ -65,8 +65,8 @@ def run_scheduled_scrape():
         if result['success']:
             processed = result.get('processed', {})
             logger.info(f"✅ Scraping concluído: "
-                       f"{processed.get('tournaments', 0)} torneios, "
-                       f"{processed.get('matches', 0)} partidas")
+                       f"{processed.get('nearest_matches', 0)} partidas próximas, "
+                       f"{processed.get('streaming_locations', 0)} locations streaming")
         else:
             logger.error(f"❌ Scraping falhou: {result.get('error')}")
         
@@ -78,8 +78,8 @@ def run_scheduled_scrape():
 # Configurar scheduler
 scheduler = BackgroundScheduler()
 
-# Obter intervalo de scraping das variáveis de ambiente
-SCAN_INTERVAL = int(os.environ.get('SCAN_INTERVAL', 120))  # Padrão: 120 segundos (2 minutos)
+# Obter configurações das variáveis de ambiente
+SCAN_INTERVAL = int(os.environ.get('SCAN_INTERVAL', 120))  # Padrão: 120s (2 min)
 RUN_SCRAPER = os.environ.get('RUN_SCRAPER', 'true').lower() == 'true'
 
 if RUN_SCRAPER:
@@ -89,22 +89,23 @@ if RUN_SCRAPER:
         trigger='interval',
         seconds=SCAN_INTERVAL,
         id='scraper_job',
-        name='Scraper de partidas FIFA25',
+        name='Scraper FIFA25 ESportsBattle',
         replace_existing=True
     )
     scheduler.start()
     app_state['scheduler_running'] = True
-    logger.info("✅ Scheduler iniciado")
+    logger.info("✅ Scheduler iniciado com sucesso")
 else:
     logger.warning("⚠️  Scraper desabilitado (RUN_SCRAPER=false)")
 
 
-# Rotas Flask
+# ============ ROTAS FLASK ============
+
 @app.route('/')
 def index():
     """Página principal - Dashboard"""
     try:
-        # Obter estatísticas
+        # Obter estatísticas do serviço
         stats = scraper_service.get_stats()
         
         # Obter resumo atual da API
@@ -123,7 +124,7 @@ def index():
 
 @app.route('/api/status')
 def api_status():
-    """API endpoint - Status da aplicação"""
+    """API endpoint - Status completo da aplicação"""
     stats = scraper_service.get_stats()
     
     return jsonify({
@@ -141,7 +142,7 @@ def api_status():
 def api_scrape_now():
     """API endpoint - Executar scraping manualmente"""
     try:
-        logger.info("🔄 Scraping manual solicitado")
+        logger.info("🔄 Scraping manual solicitado via API")
         result = scraper_service.run_scraping()
         
         app_state['last_scrape'] = datetime.now().isoformat()
@@ -163,7 +164,7 @@ def api_scrape_now():
 
 @app.route('/api/summary')
 def api_summary():
-    """API endpoint - Resumo dos dados"""
+    """API endpoint - Resumo rápido dos dados"""
     try:
         from web_scraper.api_client import FIFA25APIClient
         client = FIFA25APIClient()
@@ -195,6 +196,50 @@ def api_stats():
     })
 
 
+@app.route('/api/matches/nearest')
+def api_matches_nearest():
+    """API endpoint - Partidas próximas"""
+    try:
+        from web_scraper.api_client import FIFA25APIClient
+        client = FIFA25APIClient()
+        matches = client.get_nearest_matches()
+        
+        return jsonify({
+            'success': True,
+            'matches': matches,
+            'count': len(matches),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Erro ao buscar partidas: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/streaming')
+def api_streaming():
+    """API endpoint - Locations com streaming"""
+    try:
+        from web_scraper.api_client import FIFA25APIClient
+        client = FIFA25APIClient()
+        streaming = client.get_streaming_all()
+        
+        return jsonify({
+            'success': True,
+            'locations': streaming,
+            'count': len(streaming),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Erro ao buscar streaming: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/health')
 def health():
     """Health check para Render"""
@@ -205,7 +250,7 @@ def health():
     })
 
 
-# Executar primeira verificação ao iniciar
+# Executar scraping inicial ao iniciar
 @app.before_first_request
 def initial_scrape():
     """Executa scraping inicial ao iniciar a aplicação"""
@@ -215,7 +260,11 @@ def initial_scrape():
         app_state['last_scrape'] = datetime.now().isoformat()
         app_state['last_result'] = result
         app_state['status'] = 'running'
-        logger.info("✅ Scraping inicial concluído")
+        
+        if result['success']:
+            logger.info("✅ Scraping inicial concluído com sucesso")
+        else:
+            logger.warning("⚠️  Scraping inicial completou com avisos")
     except Exception as e:
         logger.error(f"❌ Erro no scraping inicial: {e}")
         app_state['status'] = 'error'
@@ -240,16 +289,18 @@ if __name__ == '__main__':
     debug = os.environ.get('FLASK_ENV') == 'development'
     
     logger.info("="*80)
-    logger.info("🚀 FIFA25 Bot - ESportsBattle Scraper")
+    logger.info("🚀 FIFA25 BOT - ESportsBattle Scraper")
     logger.info("="*80)
     logger.info(f"   Porta: {port}")
     logger.info(f"   Debug: {debug}")
     logger.info(f"   Scraper: {'Ativo' if RUN_SCRAPER else 'Inativo'}")
-    logger.info(f"   Intervalo: {SCAN_INTERVAL}s")
+    logger.info(f"   Intervalo: {SCAN_INTERVAL}s ({SCAN_INTERVAL/60:.1f} min)")
     logger.info("="*80)
+    logger.info("")
     
     app.run(
         host='0.0.0.0',
         port=port,
-        debug=debug
+        debug=debug,
+        use_reloader=False  # Importante para evitar duplo scheduler
     )
