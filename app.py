@@ -408,7 +408,49 @@ def save_match(match_data):
 @app.route('/')
 def index():
     """Página inicial - Dashboard"""
-    return render_template('dashboard.html', stats=stats)
+    try:
+        # Buscar estatísticas gerais
+        total_matches = Match.query.count()
+        live_matches = Match.query.filter_by(status_id=2).count()
+        upcoming_matches = Match.query.filter_by(status_id=1).count()
+        finished_matches = Match.query.filter_by(status_id=3).count()
+        
+        # Buscar partidas recentes
+        recent_matches = Match.query.order_by(Match.updated_at.desc()).limit(10).all()
+        
+        # Buscar partidas ao vivo
+        live_matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).limit(10).all()
+        
+        # Buscar próximas partidas
+        upcoming_matches_list = Match.query.filter_by(status_id=1).order_by(Match.date.asc()).limit(10).all()
+        
+        # Preparar dados do summary
+        summary = {
+            'total_matches': total_matches,
+            'live_matches_count': live_matches,
+            'upcoming_matches_count': upcoming_matches,
+            'finished_matches_count': finished_matches,
+            'nearest_matches_count': upcoming_matches,
+            'recent_matches': [m.to_dict() for m in recent_matches],
+            'live_matches': [m.to_dict() for m in live_matches_list],
+            'upcoming_matches': [m.to_dict() for m in upcoming_matches_list]
+        }
+        
+        return render_template('dashboard.html', stats=stats, summary=summary)
+    except Exception as e:
+        logger.error(f"Erro ao carregar dashboard: {e}")
+        # Retornar página com dados vazios em caso de erro
+        summary = {
+            'total_matches': 0,
+            'live_matches_count': 0,
+            'upcoming_matches_count': 0,
+            'finished_matches_count': 0,
+            'nearest_matches_count': 0,
+            'recent_matches': [],
+            'live_matches': [],
+            'upcoming_matches': []
+        }
+        return render_template('dashboard.html', stats=stats, summary=summary)
 
 
 @app.route('/matches')
