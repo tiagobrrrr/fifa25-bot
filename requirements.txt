@@ -1,49 +1,37 @@
-# FIFA25 Bot - Dependências Python
-# Versão Final Atualizada
-
-# Framework Web
 Flask==3.0.0
-Werkzeug==3.0.1
-
-# HTTP Requests
-requests==2.31.0
-urllib3==2.1.0
-
-# Scheduler (Background Jobs)
-APScheduler==3.10.4
-
-# Data Processing (Opcional - para relatórios)
-pandas==2.1.4
-openpyxl==3.1.2
-
-# Database
-# PostgreSQL (para Render)
-psycopg2-binary==2.9.9
-# SQLAlchemy (ORM opcional)
+Flask-SQLAlchemy==3.1.1
 SQLAlchemy==2.0.23
-
-# Date/Time
-python-dateutil==2.8.2
-pytz==2023.3
-
-# Environment Variables
-python-dotenv==1.0.0
-
-# Production Server
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+pandas==2.1.3
+openpyxl==3.1.2
+matplotlib==3.8.2
 gunicorn==21.2.0
-
-# Telegram Bot (Opcional - para notificações)
-# Descomente se quiser usar
-# python-telegram-bot==20.7
-
-# Web Scraping Alternativo (Opcional - caso precise de Selenium)
-# Descomente apenas se necessário
-# beautifulsoup4==4.12.2
-# lxml==5.1.0
-# selenium==4.16.0
-# webdriver-manager==4.0.1
-
-# Testing (Desenvolvimento - Opcional)
-# pytest==7.4.3
-# pytest-flask==1.3.0
-# pytest-cov==4.1.0
+psycopg2-binary==2.9.9
+APScheduler==3.10.4
+python-dotenv==1.0.0
+Werkzeug==3.0.1
+MarkupSafe==2.1.3
+Jinja2==3.1.2
+click==8.1.7
+itsdangerous==2.1.2
+pytz==2023.3
+certifi==2023.11.17
+charset-normalizer==3.3.2
+idna==3.6
+urllib3==2.1.0
+soupsieve==2.5
+numpy==1.26.2
+python-dateutil==2.8.2
+six==1.16.0
+pyparsing==3.1.1
+pillow==10.1.0
+contourpy==1.2.0
+cycler==0.12.1
+fonttools==4.46.0
+kiwisolver==1.4.5
+packaging==23.2
+greenlet==3.0.1
+typing_extensions==4.8.0
+tzlocal==5.2
