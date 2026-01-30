@@ -36,18 +36,101 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 # Inicialização do banco de dados
 db = SQLAlchemy(app)
 
-# Importar modelos após inicializar db
-from models import Match, Player, Analysis, Tournament
+# Definir modelos inline para evitar import circular
+class Match(db.Model):
+    """Modelo de Partida"""
+    __tablename__ = 'matches'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    match_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
+    status_id = db.Column(db.Integer, default=1)
+    date = db.Column(db.DateTime, index=True)
+    tournament_id = db.Column(db.Integer, index=True)
+    tournament_token = db.Column(db.String(200))
+    location_code = db.Column(db.String(100))
+    location_name = db.Column(db.String(200))
+    location_color = db.Column(db.String(20))
+    console_id = db.Column(db.Integer)
+    console_token = db.Column(db.String(100))
+    player1_id = db.Column(db.Integer, index=True)
+    player1_nickname = db.Column(db.String(100))
+    player1_photo = db.Column(db.String(500))
+    player1_team_id = db.Column(db.Integer)
+    player1_team_name = db.Column(db.String(200))
+    player1_team_logo = db.Column(db.String(500))
+    player2_id = db.Column(db.Integer, index=True)
+    player2_nickname = db.Column(db.String(100))
+    player2_photo = db.Column(db.String(500))
+    player2_team_id = db.Column(db.Integer)
+    player2_team_name = db.Column(db.String(200))
+    player2_team_logo = db.Column(db.String(500))
+    score1 = db.Column(db.Integer)
+    score2 = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'match_id': self.match_id,
+            'status_id': self.status_id,
+            'date': self.date.isoformat() if self.date else None,
+            'player1_nickname': self.player1_nickname,
+            'player2_nickname': self.player2_nickname,
+            'score1': self.score1,
+            'score2': self.score2
+        }
+
+class Player(db.Model):
+    """Modelo de Jogador"""
+    __tablename__ = 'players'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
+    nickname = db.Column(db.String(100), nullable=False)
+    photo = db.Column(db.String(500))
+    total_matches = db.Column(db.Integer, default=0)
+    wins = db.Column(db.Integer, default=0)
+    losses = db.Column(db.Integer, default=0)
+    draws = db.Column(db.Integer, default=0)
+    goals_scored = db.Column(db.Integer, default=0)
+    goals_conceded = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+class Tournament(db.Model):
+    """Modelo de Torneio"""
+    __tablename__ = 'tournaments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
+    status_id = db.Column(db.Integer, default=1)
+    token = db.Column(db.String(200))
+    token_international = db.Column(db.String(200))
+    marker = db.Column(db.String(10))
+    total_matches = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+class Analysis(db.Model):
+    """Modelo de Análise Diária"""
+    __tablename__ = 'analyses'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False, index=True)
+    total_matches = db.Column(db.Integer, default=0)
+    live_matches = db.Column(db.Integer, default=0)
+    finished_matches = db.Column(db.Integer, default=0)
+    canceled_matches = db.Column(db.Integer, default=0)
+    unique_players = db.Column(db.Integer, default=0)
+    top_teams = db.Column(db.Text)
+    top_locations = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
 # Importar serviços
 from web_scraper import FIFA25Scraper
 from data_analyzer import DataAnalyzer
-try:
-    from telegram_service import TelegramService
-    telegram_enabled = True
-except:
-    telegram_enabled = False
-    logger.warning("⚠️ Telegram service não disponível")
 
 try:
     from email_service import EmailService
@@ -56,11 +139,26 @@ except:
     email_enabled = False
     logger.warning("⚠️ Email service não disponível")
 
+try:
+    from report_generator import ReportGenerator
+    report_enabled = True
+except:
+    report_enabled = False
+    logger.warning("⚠️ Report generator não disponível")
+
+try:
+    from telegram_service import TelegramService
+    telegram_enabled = True
+except:
+    telegram_enabled = False
+    logger.warning("⚠️ Telegram service não disponível")
+
 # Variáveis globais
 scraper = FIFA25Scraper()
 analyzer = DataAnalyzer()
-telegram = TelegramService() if telegram_enabled else None
 email_service = EmailService() if email_enabled else None
+report_generator = ReportGenerator() if report_enabled else None
+telegram = TelegramService() if telegram_enabled else None
 
 # Configurações do scheduler
 SCAN_INTERVAL = int(os.environ.get('SCAN_INTERVAL', 30))
@@ -149,6 +247,85 @@ def run_scraper():
             if telegram:
                 try:
                     telegram.send_error(f"Erro no scraper: {e}")
+                except:
+                    pass
+
+
+def send_weekly_report():
+    """Envia relatório semanal por email"""
+    if not email_enabled or not report_enabled:
+        logger.warning("⚠️ Email ou Report Generator desabilitado")
+        return
+    
+    with app.app_context():
+        try:
+            logger.info("📧 Gerando relatório semanal...")
+            
+            # Buscar partidas dos últimos 7 dias
+            seven_days_ago = datetime.now() - timedelta(days=7)
+            matches = Match.query.filter(
+                Match.date >= seven_days_ago
+            ).all()
+            
+            if not matches:
+                logger.warning("⚠️ Nenhuma partida nos últimos 7 dias")
+                return
+            
+            # Converter para lista de dicionários
+            matches_data = [match.to_dict() for match in matches]
+            
+            # Gerar planilha Excel
+            excel_path = report_generator.generate_weekly_report(matches_data)
+            
+            if not excel_path:
+                logger.error("❌ Erro ao gerar planilha")
+                return
+            
+            # Preparar dados do email
+            total_matches = len(matches)
+            finished = len([m for m in matches if m.status_id == 3])
+            
+            # Jogadores únicos
+            players = set()
+            for match in matches:
+                if match.player1_nickname:
+                    players.add(match.player1_nickname)
+                if match.player2_nickname:
+                    players.add(match.player2_nickname)
+            
+            report_data = {
+                'total_matches': total_matches,
+                'finished_matches': finished,
+                'unique_players': len(players)
+            }
+            
+            # Enviar email
+            recipient_email = os.environ.get('RECIPIENT_EMAIL', os.environ.get('EMAIL_USER'))
+            
+            success = email_service.send_daily_report(
+                to_address=recipient_email,
+                report_data=report_data,
+                attachment_path=excel_path
+            )
+            
+            if success:
+                logger.info(f"✅ Relatório semanal enviado para {recipient_email}")
+            else:
+                logger.error("❌ Falha ao enviar relatório semanal")
+            
+            # Limpar relatórios antigos
+            report_generator.cleanup_old_reports(days=14)
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao enviar relatório semanal: {e}")
+            
+            if email_service:
+                try:
+                    recipient_email = os.environ.get('RECIPIENT_EMAIL', os.environ.get('EMAIL_USER'))
+                    email_service.send_error_notification(
+                        to_address=recipient_email,
+                        error_message=f"Erro ao gerar relatório semanal: {e}"
+                    )
                 except:
                     pass
 
@@ -346,12 +523,23 @@ def api_force_scan():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/send-report')
+def api_send_report():
+    """Força envio de relatório semanal (para testes)"""
+    try:
+        send_weekly_report()
+        return jsonify({'success': True, 'message': 'Relatório enviado'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ==================== SCHEDULER ====================
 
 def setup_scheduler():
     """Configura o scheduler para executar o scraper periodicamente"""
     scheduler = BackgroundScheduler()
     
+    # Job 1: Scraper (a cada X segundos)
     scheduler.add_job(
         func=run_scraper,
         trigger=IntervalTrigger(seconds=SCAN_INTERVAL),
@@ -359,9 +547,24 @@ def setup_scheduler():
         name='Scraper FIFA25 ESportsBattle',
         replace_existing=True
     )
+    logger.info(f"✅ Scheduler configurado: scraper a cada {SCAN_INTERVAL}s")
+    
+    # Job 2: Relatório Semanal (toda segunda-feira às 09:00)
+    if email_enabled and report_enabled:
+        from apscheduler.triggers.cron import CronTrigger
+        
+        scheduler.add_job(
+            func=send_weekly_report,
+            trigger=CronTrigger(day_of_week='mon', hour=9, minute=0),
+            id='weekly_report_job',
+            name='Relatório Semanal FIFA25',
+            replace_existing=True
+        )
+        logger.info("✅ Scheduler configurado: relatório semanal toda segunda às 09:00")
+    else:
+        logger.warning("⚠️ Relatório semanal desabilitado (email ou report generator não disponível)")
     
     scheduler.start()
-    logger.info(f"✅ Scheduler configurado: intervalo de {SCAN_INTERVAL}s")
     
     # Desligar o scheduler quando a aplicação fechar
     atexit.register(lambda: scheduler.shutdown())
