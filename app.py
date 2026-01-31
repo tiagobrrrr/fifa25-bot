@@ -173,8 +173,20 @@ stats = {
     'status': 'Iniciando...',
     'success_rate': 100.0,
     'uptime': 0,
-    'matches_per_hour': 0
+    'matches_per_hour': 0,
+    'live_matches': 0,
+    'upcoming_matches': 0,
+    'finished_matches': 0,
+    'unique_players': 0,
+    'active_tournaments': 0,
+    'avg_goals_per_match': 0,
+    'most_active_player': 'N/A',
+    'most_used_team': 'N/A',
+    'busiest_location': 'N/A'
 }
+
+# Tempo de início do bot
+bot_start_time = datetime.now()
 
 
 def init_db():
@@ -240,6 +252,82 @@ def run_scraper():
                 stats['success_rate'] = round(((total_attempts - failures) / total_attempts) * 100, 1)
             else:
                 stats['success_rate'] = 100.0
+            
+            # Calcular uptime (em horas)
+            uptime_delta = datetime.now() - bot_start_time
+            stats['uptime'] = round(uptime_delta.total_seconds() / 3600, 1)
+            
+            # Partidas por hora
+            if stats['uptime'] > 0:
+                stats['matches_per_hour'] = round(stats['total_matches'] / stats['uptime'], 1)
+            
+            # Estatísticas adicionais
+            stats['live_matches'] = Match.query.filter_by(status_id=2).count()
+            stats['upcoming_matches'] = Match.query.filter_by(status_id=1).count()
+            stats['finished_matches'] = Match.query.filter_by(status_id=3).count()
+            
+            # Jogadores únicos
+            unique_p1 = db.session.query(Match.player1_id).distinct().count()
+            unique_p2 = db.session.query(Match.player2_id).distinct().count()
+            stats['unique_players'] = unique_p1 + unique_p2
+            
+            # Torneios ativos
+            stats['active_tournaments'] = db.session.query(Match.tournament_id).distinct().count()
+            
+            # Média de gols
+            finished = Match.query.filter_by(status_id=3).filter(
+                Match.score1.isnot(None),
+                Match.score2.isnot(None)
+            ).all()
+            
+            if finished:
+                total_goals = sum([(m.score1 or 0) + (m.score2 or 0) for m in finished])
+                stats['avg_goals_per_match'] = round(total_goals / len(finished), 2)
+            
+            # Jogador mais ativo
+            top_player = db.session.query(
+                Match.player1_nickname,
+                db.func.count(Match.id).label('count')
+            ).filter(
+                Match.player1_nickname.isnot(None)
+            ).group_by(
+                Match.player1_nickname
+            ).order_by(
+                db.desc('count')
+            ).first()
+            
+            if top_player:
+                stats['most_active_player'] = top_player[0]
+            
+            # Time mais usado
+            top_team = db.session.query(
+                Match.player1_team_name,
+                db.func.count(Match.id).label('count')
+            ).filter(
+                Match.player1_team_name.isnot(None)
+            ).group_by(
+                Match.player1_team_name
+            ).order_by(
+                db.desc('count')
+            ).first()
+            
+            if top_team:
+                stats['most_used_team'] = top_team[0]
+            
+            # Location mais ativa
+            top_location = db.session.query(
+                Match.location_name,
+                db.func.count(Match.id).label('count')
+            ).filter(
+                Match.location_name.isnot(None)
+            ).group_by(
+                Match.location_name
+            ).order_by(
+                db.desc('count')
+            ).first()
+            
+            if top_location:
+                stats['busiest_location'] = top_location[0]
             
             logger.info(f"✅ Varredura completa: {total_saved} partidas salvas")
             
