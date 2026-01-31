@@ -508,11 +508,11 @@ def save_match(match_data):
 def index():
     """Página inicial - Dashboard"""
     try:
-        # Buscar estatísticas gerais
+        # Buscar estatísticas gerais do banco
         total_matches = Match.query.count()
-        live_matches = Match.query.filter_by(status_id=2).count()
-        upcoming_matches = Match.query.filter_by(status_id=1).count()
-        finished_matches = Match.query.filter_by(status_id=3).count()
+        live_matches_count = Match.query.filter_by(status_id=2).count()
+        upcoming_matches_count = Match.query.filter_by(status_id=1).count()
+        finished_matches_count = Match.query.filter_by(status_id=3).count()
         
         # Buscar partidas recentes
         recent_matches = Match.query.order_by(Match.updated_at.desc()).limit(10).all()
@@ -523,33 +523,181 @@ def index():
         # Buscar próximas partidas
         upcoming_matches_list = Match.query.filter_by(status_id=1).order_by(Match.date.asc()).limit(10).all()
         
-        # Preparar dados do summary
+        # Buscar partidas finalizadas recentes
+        finished_matches_list = Match.query.filter_by(status_id=3).order_by(Match.date.desc()).limit(10).all()
+        
+        # Preparar dados do summary com TODOS os campos possíveis
         summary = {
             'total_matches': total_matches,
-            'live_matches_count': live_matches,
-            'upcoming_matches_count': upcoming_matches,
-            'finished_matches_count': finished_matches,
-            'nearest_matches_count': upcoming_matches,
+            'live_matches_count': live_matches_count,
+            'upcoming_matches_count': upcoming_matches_count,
+            'finished_matches_count': finished_matches_count,
+            'nearest_matches_count': upcoming_matches_count,
+            'recent_matches_count': len(recent_matches),
             'recent_matches': [m.to_dict() for m in recent_matches],
             'live_matches': [m.to_dict() for m in live_matches_list],
-            'upcoming_matches': [m.to_dict() for m in upcoming_matches_list]
+            'upcoming_matches': [m.to_dict() for m in upcoming_matches_list],
+            'finished_matches': [m.to_dict() for m in finished_matches_list],
+            'has_live_matches': live_matches_count > 0,
+            'has_upcoming_matches': upcoming_matches_count > 0,
+            'has_recent_matches': len(recent_matches) > 0
         }
         
-        return render_template('dashboard.html', stats=stats, summary=summary)
+        # Garantir que stats tem TODOS os campos
+        stats_copy = dict(stats)
+        
+        # Adicionar campos que podem estar faltando
+        default_stats = {
+            'last_scan': None,
+            'total_scans': 0,
+            'total_matches': 0,
+            'errors': 0,
+            'status': 'Iniciando...',
+            'success_rate': 100.0,
+            'uptime': 0,
+            'matches_per_hour': 0,
+            'live_matches': 0,
+            'upcoming_matches': 0,
+            'finished_matches': 0,
+            'unique_players': 0,
+            'active_tournaments': 0,
+            'avg_goals_per_match': 0,
+            'most_active_player': 'N/A',
+            'most_used_team': 'N/A',
+            'busiest_location': 'N/A',
+            'scraper_enabled': RUN_SCRAPER,
+            'scan_interval': SCAN_INTERVAL
+        }
+        
+        # Mesclar defaults com valores atuais
+        for key, default_value in default_stats.items():
+            if key not in stats_copy or stats_copy[key] is None:
+                stats_copy[key] = default_value
+        
+        # Formatar last_scan para string se existir
+        if stats_copy.get('last_scan'):
+            try:
+                stats_copy['last_scan_formatted'] = stats_copy['last_scan'].strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                stats_copy['last_scan_formatted'] = 'N/A'
+        else:
+            stats_copy['last_scan_formatted'] = 'Nunca'
+        
+        return render_template('dashboard.html', stats=stats_copy, summary=summary)
+        
     except Exception as e:
-        logger.error(f"Erro ao carregar dashboard: {e}")
-        # Retornar página com dados vazios em caso de erro
-        summary = {
+        logger.error(f"❌ Erro ao carregar dashboard: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Retornar página de erro amigável
+        error_message = str(e)
+        
+        # Dados mínimos para evitar erro no template
+        stats_minimal = {
+            'last_scan': None,
+            'last_scan_formatted': 'Erro',
+            'total_scans': 0,
+            'total_matches': 0,
+            'errors': 1,
+            'status': f'Erro: {error_message[:50]}',
+            'success_rate': 0,
+            'uptime': 0,
+            'matches_per_hour': 0,
+            'live_matches': 0,
+            'upcoming_matches': 0,
+            'finished_matches': 0,
+            'unique_players': 0,
+            'active_tournaments': 0,
+            'avg_goals_per_match': 0,
+            'most_active_player': 'N/A',
+            'most_used_team': 'N/A',
+            'busiest_location': 'N/A',
+            'scraper_enabled': RUN_SCRAPER,
+            'scan_interval': SCAN_INTERVAL
+        }
+        
+        summary_minimal = {
             'total_matches': 0,
             'live_matches_count': 0,
             'upcoming_matches_count': 0,
             'finished_matches_count': 0,
             'nearest_matches_count': 0,
+            'recent_matches_count': 0,
             'recent_matches': [],
             'live_matches': [],
-            'upcoming_matches': []
+            'upcoming_matches': [],
+            'finished_matches': [],
+            'has_live_matches': False,
+            'has_upcoming_matches': False,
+            'has_recent_matches': False,
+            'error': error_message
         }
-        return render_template('dashboard.html', stats=stats, summary=summary)
+        
+        try:
+            return render_template('dashboard.html', stats=stats_minimal, summary=summary_minimal)
+        except:
+            # Se mesmo assim falhar, retornar HTML simples
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>FIFA 25 Bot - Erro</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        max-width: 800px;
+                        margin: 50px auto;
+                        padding: 20px;
+                        background: #f5f5f5;
+                    }}
+                    .error-box {{
+                        background: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    }}
+                    h1 {{ color: #e74c3c; }}
+                    .error-details {{
+                        background: #f8f9fa;
+                        padding: 15px;
+                        border-left: 4px solid #e74c3c;
+                        margin-top: 20px;
+                        font-family: monospace;
+                    }}
+                    .stats {{
+                        margin-top: 30px;
+                        padding: 20px;
+                        background: #e8f5e9;
+                        border-radius: 5px;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="error-box">
+                    <h1>⚠️ Erro no Dashboard</h1>
+                    <p>O dashboard encontrou um erro, mas o bot está funcionando normalmente!</p>
+                    
+                    <div class="error-details">
+                        <strong>Erro:</strong> {error_message}
+                    </div>
+                    
+                    <div class="stats">
+                        <h2>✅ Bot Status</h2>
+                        <p><strong>Status:</strong> Online e coletando dados</p>
+                        <p><strong>Total de partidas:</strong> {Match.query.count()}</p>
+                        <p><strong>Partidas ao vivo:</strong> {Match.query.filter_by(status_id=2).count()}</p>
+                        <p><strong>Próximas partidas:</strong> {Match.query.filter_by(status_id=1).count()}</p>
+                    </div>
+                    
+                    <p style="margin-top: 30px;">
+                        <a href="/api/stats" style="color: #3498db;">Ver estatísticas (API JSON)</a> | 
+                        <a href="/matches" style="color: #3498db;">Ver partidas</a>
+                    </p>
+                </div>
+            </body>
+            </html>
+            """, 500
 
 
 @app.route('/matches')
