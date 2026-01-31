@@ -508,39 +508,53 @@ def save_match(match_data):
 def index():
     """Página inicial - Dashboard"""
     try:
+        # Data atual
+        today = datetime.now().date()
+        
         # Buscar estatísticas gerais do banco
         total_matches = Match.query.count()
         live_matches_count = Match.query.filter_by(status_id=2).count()
         upcoming_matches_count = Match.query.filter_by(status_id=1).count()
         finished_matches_count = Match.query.filter_by(status_id=3).count()
         
-        # Buscar partidas recentes
-        recent_matches = Match.query.order_by(Match.updated_at.desc()).limit(10).all()
+        # Partidas do dia
+        today_matches = Match.query.filter(
+            db.func.date(Match.date) == today
+        ).count()
         
-        # Buscar partidas ao vivo
-        live_matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).limit(10).all()
+        # Buscar partidas ao vivo AGORA
+        live_matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).limit(20).all()
         
-        # Buscar próximas partidas
-        upcoming_matches_list = Match.query.filter_by(status_id=1).order_by(Match.date.asc()).limit(10).all()
+        # Buscar próximas partidas agendadas
+        upcoming_matches_list = Match.query.filter_by(status_id=1).order_by(Match.date.asc()).limit(20).all()
         
         # Buscar partidas finalizadas recentes
         finished_matches_list = Match.query.filter_by(status_id=3).order_by(Match.date.desc()).limit(10).all()
         
-        # Preparar dados do summary com TODOS os campos possíveis
+        # Estado da aplicação
+        app_state = {
+            'scheduler_running': RUN_SCRAPER,
+            'email_enabled': email_enabled,
+            'report_enabled': report_enabled,
+            'database_connected': True,
+            'last_error': None
+        }
+        
+        # Preparar dados do summary
         summary = {
             'total_matches': total_matches,
+            'today_matches': today_matches,
             'live_matches_count': live_matches_count,
             'upcoming_matches_count': upcoming_matches_count,
             'finished_matches_count': finished_matches_count,
             'nearest_matches_count': upcoming_matches_count,
-            'recent_matches_count': len(recent_matches),
-            'recent_matches': [m.to_dict() for m in recent_matches],
+            'recent_matches_count': finished_matches_count,
             'live_matches': [m.to_dict() for m in live_matches_list],
             'upcoming_matches': [m.to_dict() for m in upcoming_matches_list],
             'finished_matches': [m.to_dict() for m in finished_matches_list],
             'has_live_matches': live_matches_count > 0,
             'has_upcoming_matches': upcoming_matches_count > 0,
-            'has_recent_matches': len(recent_matches) > 0
+            'has_recent_matches': finished_matches_count > 0
         }
         
         # Garantir que stats tem TODOS os campos
@@ -583,127 +597,148 @@ def index():
         else:
             stats_copy['last_scan_formatted'] = 'Nunca'
         
-        return render_template('dashboard.html', stats=stats_copy, summary=summary)
+        return render_template('dashboard.html', 
+                             stats=stats_copy, 
+                             summary=summary,
+                             app_state=app_state)
         
     except Exception as e:
         logger.error(f"❌ Erro ao carregar dashboard: {e}")
         import traceback
         logger.error(traceback.format_exc())
         
-        # Retornar página de erro amigável
+        # Retornar página HTML simples em caso de erro
         error_message = str(e)
         
-        # Dados mínimos para evitar erro no template
-        stats_minimal = {
-            'last_scan': None,
-            'last_scan_formatted': 'Erro',
-            'total_scans': 0,
-            'total_matches': 0,
-            'errors': 1,
-            'status': f'Erro: {error_message[:50]}',
-            'success_rate': 0,
-            'uptime': 0,
-            'matches_per_hour': 0,
-            'live_matches': 0,
-            'upcoming_matches': 0,
-            'finished_matches': 0,
-            'unique_players': 0,
-            'active_tournaments': 0,
-            'avg_goals_per_match': 0,
-            'most_active_player': 'N/A',
-            'most_used_team': 'N/A',
-            'busiest_location': 'N/A',
-            'scraper_enabled': RUN_SCRAPER,
-            'scan_interval': SCAN_INTERVAL
-        }
-        
-        summary_minimal = {
-            'total_matches': 0,
-            'live_matches_count': 0,
-            'upcoming_matches_count': 0,
-            'finished_matches_count': 0,
-            'nearest_matches_count': 0,
-            'recent_matches_count': 0,
-            'recent_matches': [],
-            'live_matches': [],
-            'upcoming_matches': [],
-            'finished_matches': [],
-            'has_live_matches': False,
-            'has_upcoming_matches': False,
-            'has_recent_matches': False,
-            'error': error_message
-        }
-        
         try:
-            return render_template('dashboard.html', stats=stats_minimal, summary=summary_minimal)
+            total = Match.query.count()
+            live = Match.query.filter_by(status_id=2).count()
+            upcoming = Match.query.filter_by(status_id=1).count()
         except:
-            # Se mesmo assim falhar, retornar HTML simples
-            return f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>FIFA 25 Bot - Erro</title>
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        max-width: 800px;
-                        margin: 50px auto;
-                        padding: 20px;
-                        background: #f5f5f5;
-                    }}
-                    .error-box {{
-                        background: white;
-                        padding: 30px;
-                        border-radius: 10px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                    }}
-                    h1 {{ color: #e74c3c; }}
-                    .error-details {{
-                        background: #f8f9fa;
-                        padding: 15px;
-                        border-left: 4px solid #e74c3c;
-                        margin-top: 20px;
-                        font-family: monospace;
-                    }}
-                    .stats {{
-                        margin-top: 30px;
-                        padding: 20px;
-                        background: #e8f5e9;
-                        border-radius: 5px;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="error-box">
-                    <h1>⚠️ Erro no Dashboard</h1>
-                    <p>O dashboard encontrou um erro, mas o bot está funcionando normalmente!</p>
-                    
-                    <div class="error-details">
-                        <strong>Erro:</strong> {error_message}
-                    </div>
-                    
-                    <div class="stats">
-                        <h2>✅ Bot Status</h2>
-                        <p><strong>Status:</strong> Online e coletando dados</p>
-                        <p><strong>Total de partidas:</strong> {Match.query.count()}</p>
-                        <p><strong>Partidas ao vivo:</strong> {Match.query.filter_by(status_id=2).count()}</p>
-                        <p><strong>Próximas partidas:</strong> {Match.query.filter_by(status_id=1).count()}</p>
-                    </div>
-                    
-                    <p style="margin-top: 30px;">
-                        <a href="/api/stats" style="color: #3498db;">Ver estatísticas (API JSON)</a> | 
-                        <a href="/matches" style="color: #3498db;">Ver partidas</a>
-                    </p>
+            total = 0
+            live = 0
+            upcoming = 0
+        
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>FIFA 25 Bot - Dashboard</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    padding: 20px;
+                }}
+                .container {{
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }}
+                .header {{
+                    background: white;
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                    margin-bottom: 30px;
+                    text-align: center;
+                }}
+                h1 {{ color: #667eea; font-size: 2.5em; margin-bottom: 10px; }}
+                .status {{ color: #27ae60; font-size: 1.2em; }}
+                .stats-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                    gap: 20px;
+                    margin-top: 30px;
+                }}
+                .stat-card {{
+                    background: white;
+                    padding: 25px;
+                    border-radius: 15px;
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                    text-align: center;
+                }}
+                .stat-number {{
+                    font-size: 3em;
+                    font-weight: bold;
+                    color: #667eea;
+                    margin: 10px 0;
+                }}
+                .stat-label {{
+                    color: #666;
+                    font-size: 1.1em;
+                }}
+                .error-box {{
+                    background: #fff3cd;
+                    border-left: 4px solid #ffc107;
+                    padding: 20px;
+                    border-radius: 10px;
+                    margin-top: 20px;
+                }}
+                .btn {{
+                    display: inline-block;
+                    padding: 15px 30px;
+                    background: #667eea;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 8px;
+                    margin: 10px;
+                    transition: all 0.3s;
+                }}
+                .btn:hover {{
+                    background: #764ba2;
+                    transform: translateY(-2px);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🎮 FIFA 25 Bot</h1>
+                    <p class="status">✅ Sistema Online e Coletando Dados</p>
                 </div>
-            </body>
-            </html>
-            """, 500
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total de Partidas</div>
+                        <div class="stat-number">{total}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">🔴 Ao Vivo</div>
+                        <div class="stat-number">{live}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">📅 Agendadas</div>
+                        <div class="stat-number">{upcoming}</div>
+                    </div>
+                </div>
+                
+                <div class="error-box">
+                    <h3>⚠️ Dashboard em Manutenção</h3>
+                    <p>O template do dashboard precisa ser atualizado. Enquanto isso, use as APIs abaixo:</p>
+                </div>
+                
+                <div style="text-align: center; margin-top: 30px;">
+                    <a href="/api/stats" class="btn">📊 Ver Estatísticas (JSON)</a>
+                    <a href="/api/matches/live" class="btn">🔴 Partidas Ao Vivo</a>
+                    <a href="/api/matches/upcoming" class="btn">📅 Próximas Partidas</a>
+                </div>
+            </div>
+        </body>
+        </html>
+        """, 500
 
 
 @app.route('/matches')
 def matches():
     """Página de partidas"""
     status_filter = request.args.get('status', 'all')
+    page = request.args.get('page', 1, type=int)
+    per_page = 50
     
     query = Match.query
     
@@ -714,9 +749,31 @@ def matches():
     elif status_filter == 'finished':
         query = query.filter_by(status_id=3)
     
-    matches = query.order_by(Match.date.desc()).limit(100).all()
+    # Paginar resultados
+    pagination_obj = query.order_by(Match.date.desc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
     
-    return render_template('matches.html', matches=matches, status=status_filter)
+    matches_list = pagination_obj.items
+    
+    # Objeto de paginação para o template
+    pagination = {
+        'page': page,
+        'pages': pagination_obj.pages,
+        'total': pagination_obj.total,
+        'per_page': per_page,
+        'has_prev': pagination_obj.has_prev,
+        'has_next': pagination_obj.has_next,
+        'prev_num': pagination_obj.prev_num,
+        'next_num': pagination_obj.next_num
+    }
+    
+    return render_template('matches.html', 
+                         matches=matches_list, 
+                         status=status_filter,
+                         pagination=pagination)
 
 
 @app.route('/players')
