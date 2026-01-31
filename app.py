@@ -170,7 +170,10 @@ stats = {
     'total_scans': 0,
     'total_matches': 0,
     'errors': 0,
-    'status': 'Iniciando...'
+    'status': 'Iniciando...',
+    'success_rate': 100.0,
+    'uptime': 0,
+    'matches_per_hour': 0
 }
 
 
@@ -229,6 +232,14 @@ def run_scraper():
             stats['total_scans'] += 1
             stats['total_matches'] = Match.query.count()
             stats['status'] = 'Online'
+            
+            # Calcular taxa de sucesso
+            total_attempts = stats['total_scans']
+            failures = stats['errors']
+            if total_attempts > 0:
+                stats['success_rate'] = round(((total_attempts - failures) / total_attempts) * 100, 1)
+            else:
+                stats['success_rate'] = 100.0
             
             logger.info(f"✅ Varredura completa: {total_saved} partidas salvas")
             
