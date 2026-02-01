@@ -776,6 +776,117 @@ def matches():
                          pagination=pagination)
 
 
+@app.route('/history')
+def history():
+    """Página de histórico de partidas finalizadas"""
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    
+    # Filtros
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    player_filter = request.args.get('player', '')
+    team_filter = request.args.get('team', '')
+    
+    # Query base - apenas finalizadas
+    query = Match.query.filter_by(status_id=3)
+    
+    # Aplicar filtros
+    if date_from:
+        try:
+            from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+            query = query.filter(db.func.date(Match.date) >= from_date)
+        except:
+            pass
+    
+    if date_to:
+        try:
+            to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+            query = query.filter(db.func.date(Match.date) <= to_date)
+        except:
+            pass
+    
+    if player_filter:
+        query = query.filter(
+            db.or_(
+                Match.player1_nickname.ilike(f'%{player_filter}%'),
+                Match.player2_nickname.ilike(f'%{player_filter}%')
+            )
+        )
+    
+    if team_filter:
+        query = query.filter(
+            db.or_(
+                Match.player1_team_name.ilike(f'%{team_filter}%'),
+                Match.player2_team_name.ilike(f'%{team_filter}%')
+            )
+        )
+    
+    # Paginar
+    pagination_obj = query.order_by(Match.date.desc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+    
+    matches_list = pagination_obj.items
+    
+    pagination = {
+        'page': page,
+        'pages': pagination_obj.pages,
+        'total': pagination_obj.total,
+        'per_page': per_page,
+        'has_prev': pagination_obj.has_prev,
+        'has_next': pagination_obj.has_next,
+        'prev_num': pagination_obj.prev_num,
+        'next_num': pagination_obj.next_num
+    }
+    
+    return render_template('history.html',
+                         matches=matches_list,
+                         pagination=pagination,
+                         total_matches=pagination_obj.total,
+                         date_from=date_from,
+                         date_to=date_to,
+                         player_filter=player_filter,
+                         team_filter=team_filter)
+
+
+@app.route('/upcoming')
+def upcoming():
+    """Página de partidas agendadas"""
+    page = request.args.get('page', 1, type=int)
+    per_page = 30
+    
+    # Query - apenas agendadas
+    query = Match.query.filter_by(status_id=1)
+    
+    # Paginar
+    pagination_obj = query.order_by(Match.date.asc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+    
+    matches_list = pagination_obj.items
+    
+    pagination = {
+        'page': page,
+        'pages': pagination_obj.pages,
+        'total': pagination_obj.total,
+        'per_page': per_page,
+        'has_prev': pagination_obj.has_prev,
+        'has_next': pagination_obj.has_next,
+        'prev_num': pagination_obj.prev_num,
+        'next_num': pagination_obj.next_num
+    }
+    
+    return render_template('upcoming.html',
+                         matches=matches_list,
+                         pagination=pagination,
+                         total_matches=pagination_obj.total)
+
+
 @app.route('/players')
 def players():
     """Página de jogadores"""

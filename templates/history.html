@@ -1,0 +1,367 @@
+{% extends "layout.html" %}
+
+{% block title %}Histórico - FIFA 25 Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .filters {
+        background: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .filter-group label {
+        font-size: 0.9em;
+        color: #666;
+        font-weight: 500;
+    }
+    
+    .filter-group select,
+    .filter-group input {
+        padding: 10px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 1em;
+        transition: border-color 0.3s;
+    }
+    
+    .filter-group select:focus,
+    .filter-group input:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .filter-btn {
+        background: #667eea;
+        color: white;
+        padding: 10px 25px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1em;
+        transition: background 0.3s;
+        margin-top: 20px;
+    }
+    
+    .filter-btn:hover {
+        background: #764ba2;
+    }
+    
+    .results-section {
+        background: white;
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    .results-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #f0f0f0;
+    }
+    
+    .results-count {
+        color: #666;
+        font-size: 1em;
+    }
+    
+    .match-result {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        border-left: 4px solid #27ae60;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .match-result:hover {
+        transform: translateX(5px);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    }
+    
+    .match-result.winner-p1 {
+        border-left-color: #3498db;
+    }
+    
+    .match-result.winner-p2 {
+        border-left-color: #e74c3c;
+    }
+    
+    .match-result.draw {
+        border-left-color: #95a5a6;
+    }
+    
+    .result-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    
+    .result-date {
+        color: #666;
+        font-size: 0.9em;
+    }
+    
+    .result-badge {
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 0.85em;
+        font-weight: bold;
+    }
+    
+    .badge-finished {
+        background: #27ae60;
+        color: white;
+    }
+    
+    .result-match {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+    }
+    
+    .result-player {
+        flex: 1;
+        text-align: center;
+    }
+    
+    .result-player.winner {
+        background: rgba(102, 126, 234, 0.1);
+        padding: 15px;
+        border-radius: 10px;
+    }
+    
+    .player-name {
+        font-size: 1.3em;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 5px;
+    }
+    
+    .player-team {
+        color: #666;
+        font-size: 0.9em;
+        margin-bottom: 10px;
+    }
+    
+    .final-score {
+        font-size: 2.5em;
+        font-weight: bold;
+        color: #667eea;
+    }
+    
+    .result-vs {
+        font-size: 1.2em;
+        color: #999;
+    }
+    
+    .result-info {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #ddd;
+        font-size: 0.9em;
+        color: #666;
+    }
+    
+    .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin-top: 30px;
+        flex-wrap: wrap;
+    }
+    
+    .page-btn {
+        padding: 10px 15px;
+        background: white;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s;
+        text-decoration: none;
+        color: #333;
+    }
+    
+    .page-btn:hover {
+        border-color: #667eea;
+        color: #667eea;
+    }
+    
+    .page-btn.active {
+        background: #667eea;
+        color: white;
+        border-color: #667eea;
+    }
+    
+    .page-btn.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #999;
+    }
+    
+    .empty-icon {
+        font-size: 4em;
+        margin-bottom: 15px;
+        opacity: 0.3;
+    }
+    
+    @media (max-width: 768px) {
+        .result-match {
+            flex-direction: column;
+        }
+        
+        .filters {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        
+        .filter-group {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📜 Histórico de Partidas</h1>
+    <p>Todas as partidas finalizadas e coletadas</p>
+</div>
+
+<!-- Filtros -->
+<div class="filters">
+    <div class="filter-group">
+        <label>Data Inicial</label>
+        <input type="date" id="date_from" value="{{ date_from }}">
+    </div>
+    <div class="filter-group">
+        <label>Data Final</label>
+        <input type="date" id="date_to" value="{{ date_to }}">
+    </div>
+    <div class="filter-group">
+        <label>Jogador</label>
+        <input type="text" id="player" placeholder="Nome do jogador" value="{{ player_filter }}">
+    </div>
+    <div class="filter-group">
+        <label>Time</label>
+        <input type="text" id="team" placeholder="Nome do time" value="{{ team_filter }}">
+    </div>
+    <button class="filter-btn" onclick="applyFilters()">🔍 Filtrar</button>
+</div>
+
+<!-- Resultados -->
+<div class="results-section">
+    <div class="results-header">
+        <h2>Resultados</h2>
+        <span class="results-count">{{ total_matches }} partidas encontradas</span>
+    </div>
+    
+    {% if matches %}
+        {% for match in matches %}
+        <div class="match-result {% if match.score1 > match.score2 %}winner-p1{% elif match.score2 > match.score1 %}winner-p2{% else %}draw{% endif %}">
+            <div class="result-header">
+                <span class="result-date">📅 {{ match.date }}</span>
+                <span class="result-badge badge-finished">✅ FINALIZADA</span>
+            </div>
+            
+            <div class="result-match">
+                <div class="result-player {% if match.score1 > match.score2 %}winner{% endif %}">
+                    <div class="player-name">{{ match.player1_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player1_team_name }}</div>
+                    <div class="final-score">{{ match.score1 if match.score1 is not none else '-' }}</div>
+                </div>
+                
+                <div class="result-vs">VS</div>
+                
+                <div class="result-player {% if match.score2 > match.score1 %}winner{% endif %}">
+                    <div class="player-name">{{ match.player2_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player2_team_name }}</div>
+                    <div class="final-score">{{ match.score2 if match.score2 is not none else '-' }}</div>
+                </div>
+            </div>
+            
+            <div class="result-info">
+                <span>📍 {{ match.location_name }}</span>
+                <span>🏆 {{ match.tournament_token }}</span>
+                <span>🆔 Match #{{ match.match_id }}</span>
+            </div>
+        </div>
+        {% endfor %}
+        
+        <!-- Paginação -->
+        {% if pagination.pages > 1 %}
+        <div class="pagination">
+            {% if pagination.has_prev %}
+                <a href="?page={{ pagination.prev_num }}" class="page-btn">← Anterior</a>
+            {% else %}
+                <span class="page-btn disabled">← Anterior</span>
+            {% endif %}
+            
+            {% for p in range(1, pagination.pages + 1) %}
+                {% if p == pagination.page %}
+                    <span class="page-btn active">{{ p }}</span>
+                {% else %}
+                    <a href="?page={{ p }}" class="page-btn">{{ p }}</a>
+                {% endif %}
+            {% endfor %}
+            
+            {% if pagination.has_next %}
+                <a href="?page={{ pagination.next_num }}" class="page-btn">Próxima →</a>
+            {% else %}
+                <span class="page-btn disabled">Próxima →</span>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">📜</div>
+            <p>Nenhuma partida encontrada com os filtros aplicados</p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+    function applyFilters() {
+        const dateFrom = document.getElementById('date_from').value;
+        const dateTo = document.getElementById('date_to').value;
+        const player = document.getElementById('player').value;
+        const team = document.getElementById('team').value;
+        
+        let url = '/history?';
+        if (dateFrom) url += `date_from=${dateFrom}&`;
+        if (dateTo) url += `date_to=${dateTo}&`;
+        if (player) url += `player=${player}&`;
+        if (team) url += `team=${team}&`;
+        
+        window.location.href = url;
+    }
+</script>
+{% endblock %}
