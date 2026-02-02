@@ -288,28 +288,28 @@
             </div>
             <div class="match-players">
                 <div class="player">
-                    <div class="player-name">{{ match.player1.nickname }}</div>
-                    <div class="player-team">⚽ {{ match.player1.team.name }}</div>
-                    {% if match.score.player1 is not none %}
-                        <div class="score">{{ match.score.player1 }}</div>
+                    <div class="player-name">{{ match.player1_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player1_team_name }}</div>
+                    {% if match.score1 is not none %}
+                        <div class="score">{{ match.score1 }}</div>
                     {% else %}
                         <div class="score">-</div>
                     {% endif %}
                 </div>
                 <div class="vs">VS</div>
                 <div class="player">
-                    <div class="player-name">{{ match.player2.nickname }}</div>
-                    <div class="player-team">⚽ {{ match.player2.team.name }}</div>
-                    {% if match.score.player2 is not none %}
-                        <div class="score">{{ match.score.player2 }}</div>
+                    <div class="player-name">{{ match.player2_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player2_team_name }}</div>
+                    {% if match.score2 is not none %}
+                        <div class="score">{{ match.score2 }}</div>
                     {% else %}
                         <div class="score">-</div>
                     {% endif %}
                 </div>
             </div>
             <div class="match-info">
-                <span>📍 {{ match.location.name }}</span>
-                <span>🏆 {{ match.tournament.name }}</span>
+                <span>📍 {{ match.location_name }}</span>
+                <span>🏆 {{ match.tournament_token }}</span>
             </div>
         </div>
         {% endfor %}
@@ -337,18 +337,18 @@
             </div>
             <div class="match-players">
                 <div class="player">
-                    <div class="player-name">{{ match.player1.nickname }}</div>
-                    <div class="player-team">⚽ {{ match.player1.team.name }}</div>
+                    <div class="player-name">{{ match.player1_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player1_team_name }}</div>
                 </div>
                 <div class="vs">VS</div>
                 <div class="player">
-                    <div class="player-name">{{ match.player2.nickname }}</div>
-                    <div class="player-team">⚽ {{ match.player2.team.name }}</div>
+                    <div class="player-name">{{ match.player2_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player2_team_name }}</div>
                 </div>
             </div>
             <div class="match-info">
-                <span>📍 {{ match.location.name }}</span>
-                <span>🏆 {{ match.tournament.name }}</span>
+                <span>📍 {{ match.location_name }}</span>
+                <span>🏆 {{ match.tournament_token }}</span>
                 <span>🕐 {{ match.date }}</span>
             </div>
         </div>

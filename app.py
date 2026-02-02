@@ -75,10 +75,29 @@ class Match(db.Model):
             'match_id': self.match_id,
             'status_id': self.status_id,
             'date': self.date.isoformat() if self.date else None,
-            'player1_nickname': self.player1_nickname,
-            'player2_nickname': self.player2_nickname,
+            'player1_id': self.player1_id,
+            'player1_nickname': self.player1_nickname or 'TBD',
+            'player1_photo': self.player1_photo,
+            'player1_team_id': self.player1_team_id,
+            'player1_team_name': self.player1_team_name or 'N/A',
+            'player1_team_logo': self.player1_team_logo,
+            'player2_id': self.player2_id,
+            'player2_nickname': self.player2_nickname or 'TBD',
+            'player2_photo': self.player2_photo,
+            'player2_team_id': self.player2_team_id,
+            'player2_team_name': self.player2_team_name or 'N/A',
+            'player2_team_logo': self.player2_team_logo,
             'score1': self.score1,
-            'score2': self.score2
+            'score2': self.score2,
+            'location_code': self.location_code,
+            'location_name': self.location_name or 'N/A',
+            'location_color': self.location_color,
+            'console_id': self.console_id,
+            'console_token': self.console_token,
+            'tournament_id': self.tournament_id,
+            'tournament_token': self.tournament_token or 'N/A',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
 class Player(db.Model):
