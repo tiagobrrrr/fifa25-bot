@@ -1002,33 +1002,80 @@ def reports_page():
 @app.route('/history')
 def history_recent():
     """Página de histórico - últimos 30 minutos"""
-    page = request.args.get('page', 1, type=int)
-    per_page = 20
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = 20
+        
+        # Calcular 30 minutos atrás
+        thirty_min_ago = datetime.now() - timedelta(minutes=30)
+        
+        # Query - apenas finalizadas dos últimos 30 minutos
+        query = Match.query.filter(
+            Match.status_id == 3,
+            Match.updated_at >= thirty_min_ago
+        )
+        
+        # Paginar
+        pagination_obj = query.order_by(Match.updated_at.desc()).paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False
+        )
+        
+        matches_list = []
+        
+        # Converter para dicionários e formatar datas
+        for match in pagination_obj.items:
+            match_dict = {
+                'match_id': match.match_id,
+                'date': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
+                'status_id': match.status_id,
+                'player1_nickname': match.player1_nickname or 'TBD',
+                'player1_team_name': match.player1_team_name or 'N/A',
+                'player2_nickname': match.player2_nickname or 'TBD',
+                'player2_team_name': match.player2_team_name or 'N/A',
+                'score1': match.score1,
+                'score2': match.score2,
+                'location_name': match.location_name or 'N/A',
+                'tournament_token': match.tournament_token or 'N/A'
+            }
+            matches_list.append(match_dict)
+        
+        pagination = {
+            'page': page,
+            'pages': pagination_obj.pages,
+            'total': pagination_obj.total,
+            'per_page': per_page,
+            'has_prev': pagination_obj.has_prev,
+            'has_next': pagination_obj.has_next,
+            'prev_num': pagination_obj.prev_num,
+            'next_num': pagination_obj.next_num
+        }
+        
+        return render_template('history.html',
+                             matches=matches_list,
+                             pagination=pagination,
+                             total_matches=pagination_obj.total,
+                             date_from='',
+                             date_to='',
+                             player_filter='',
+                             team_filter='')
     
-    thirty_min_ago = datetime.now() - timedelta(minutes=30)
-    
-    query = Match.query.filter(Match.status_id == 3, Match.updated_at >= thirty_min_ago)
-    
-    pagination_obj = query.order_by(Match.updated_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    
-    matches_list = pagination_obj.items
-    
-    for match in matches_list:
-        if match.date:
-            match.date = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
-    
-    pagination = {
-        'page': page,
-        'pages': pagination_obj.pages,
-        'total': pagination_obj.total,
-        'per_page': per_page,
-        'has_prev': pagination_obj.has_prev,
-        'has_next': pagination_obj.has_next,
-        'prev_num': pagination_obj.prev_num,
-        'next_num': pagination_obj.next_num
-    }
-    
-    return render_template('history.html', matches=matches_list, pagination=pagination, total_matches=pagination_obj.total, date_from='', date_to='', player_filter='', team_filter='')
+    except Exception as e:
+        logger.error(f"❌ Erro na rota /history: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Retornar página vazia em caso de erro
+        return render_template('history.html',
+                             matches=[],
+                             pagination={'page': 1, 'pages': 1, 'total': 0, 'per_page': 20, 'has_prev': False, 'has_next': False, 'prev_num': None, 'next_num': None},
+                             total_matches=0,
+                             date_from='',
+                             date_to='',
+                             player_filter='',
+                             team_filter='',
+                             error=str(e))
 
 
 @app.route('/upcoming')

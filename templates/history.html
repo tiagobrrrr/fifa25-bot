@@ -292,7 +292,7 @@
             </div>
             
             <div class="result-match">
-                <div class="result-player {% if match.score1 > match.score2 %}winner{% endif %}">
+                <div class="result-player {% if match.score1 and match.score2 and match.score1 > match.score2 %}winner{% endif %}">
                     <div class="player-name">{{ match.player1_nickname }}</div>
                     <div class="player-team">⚽ {{ match.player1_team_name }}</div>
                     <div class="final-score">{{ match.score1 if match.score1 is not none else '-' }}</div>
@@ -300,7 +300,7 @@
                 
                 <div class="result-vs">VS</div>
                 
-                <div class="result-player {% if match.score2 > match.score1 %}winner{% endif %}">
+                <div class="result-player {% if match.score1 and match.score2 and match.score2 > match.score1 %}winner{% endif %}">
                     <div class="player-name">{{ match.player2_nickname }}</div>
                     <div class="player-team">⚽ {{ match.player2_team_name }}</div>
                     <div class="final-score">{{ match.score2 if match.score2 is not none else '-' }}</div>
