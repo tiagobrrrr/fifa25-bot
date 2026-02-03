@@ -1,0 +1,325 @@
+{% extends "layout.html" %}
+
+{% block title %}Relatórios - FIFA 25 Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .reports-grid {
+        display: grid;
+        gap: 25px;
+    }
+    
+    .report-card {
+        background: white;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    .report-icon {
+        font-size: 3em;
+        margin-bottom: 15px;
+    }
+    
+    .report-title {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #667eea;
+        margin-bottom: 10px;
+    }
+    
+    .report-description {
+        color: #666;
+        margin-bottom: 20px;
+        line-height: 1.6;
+    }
+    
+    .report-stats {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    
+    .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .stat-row:last-child {
+        border-bottom: none;
+    }
+    
+    .download-btn {
+        display: inline-block;
+        padding: 15px 30px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-size: 1.1em;
+        font-weight: bold;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.3s;
+        text-align: center;
+    }
+    
+    .download-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    .download-btn:active {
+        transform: translateY(0);
+    }
+    
+    .date-filter {
+        background: white;
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        margin-bottom: 25px;
+    }
+    
+    .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+    
+    .filter-group label {
+        display: block;
+        font-weight: bold;
+        color: #666;
+        margin-bottom: 8px;
+    }
+    
+    .filter-group input,
+    .filter-group select {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 1em;
+    }
+    
+    .filter-group input:focus,
+    .filter-group select:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .success-message {
+        background: #d4edda;
+        border: 2px solid #c3e6cb;
+        color: #155724;
+        padding: 15px 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        display: none;
+    }
+    
+    .error-message {
+        background: #f8d7da;
+        border: 2px solid #f5c6cb;
+        color: #721c24;
+        padding: 15px 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📊 Relatórios e Downloads</h1>
+    <p>Exporte dados das partidas em formato Excel</p>
+</div>
+
+<div id="successMsg" class="success-message"></div>
+<div id="errorMsg" class="error-message"></div>
+
+<!-- Filtros -->
+<div class="date-filter">
+    <h3>🔍 Filtrar Período</h3>
+    <form id="filterForm">
+        <div class="filter-grid">
+            <div class="filter-group">
+                <label>Data Inicial</label>
+                <input type="date" id="date_from" name="date_from">
+            </div>
+            <div class="filter-group">
+                <label>Data Final</label>
+                <input type="date" id="date_to" name="date_to">
+            </div>
+            <div class="filter-group">
+                <label>Status</label>
+                <select id="status" name="status">
+                    <option value="all">Todas</option>
+                    <option value="finished">Finalizadas</option>
+                    <option value="live">Ao Vivo</option>
+                    <option value="upcoming">Agendadas</option>
+                </select>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Relatórios Disponíveis -->
+<div class="reports-grid">
+    <!-- Relatório Completo -->
+    <div class="report-card">
+        <div class="report-icon">📋</div>
+        <div class="report-title">Relatório Completo</div>
+        <div class="report-description">
+            Todas as partidas coletadas até o momento, incluindo informações completas de jogadores, times, placares e estádios.
+        </div>
+        <div class="report-stats">
+            <div class="stat-row">
+                <span>Total de Partidas:</span>
+                <strong>{{ stats.total_matches }}</strong>
+            </div>
+            <div class="stat-row">
+                <span>Partidas Finalizadas:</span>
+                <strong>{{ stats.finished_matches }}</strong>
+            </div>
+            <div class="stat-row">
+                <span>Jogadores Únicos:</span>
+                <strong>{{ stats.unique_players }}</strong>
+            </div>
+        </div>
+        <a href="/api/download/all" class="download-btn">
+            📥 Download Completo (.xlsx)
+        </a>
+    </div>
+    
+    <!-- Relatório de Hoje -->
+    <div class="report-card">
+        <div class="report-icon">📅</div>
+        <div class="report-title">Partidas de Hoje</div>
+        <div class="report-description">
+            Apenas as partidas que aconteceram ou estão acontecendo hoje.
+        </div>
+        <div class="report-stats">
+            <div class="stat-row">
+                <span>Partidas Hoje:</span>
+                <strong id="todayCount">Calculando...</strong>
+            </div>
+            <div class="stat-row">
+                <span>Ao Vivo:</span>
+                <strong>{{ stats.live_matches }}</strong>
+            </div>
+        </div>
+        <a href="/api/download/today" class="download-btn">
+            📥 Download de Hoje (.xlsx)
+        </a>
+    </div>
+    
+    <!-- Relatório Personalizado -->
+    <div class="report-card">
+        <div class="report-icon">🎯</div>
+        <div class="report-title">Relatório Personalizado</div>
+        <div class="report-description">
+            Gere um relatório com base nos filtros de data e status selecionados acima.
+        </div>
+        <div class="report-stats">
+            <div class="stat-row">
+                <span>Período:</span>
+                <strong id="customPeriod">Selecione as datas</strong>
+            </div>
+        </div>
+        <button class="download-btn" onclick="downloadCustom()">
+            📥 Download Personalizado (.xlsx)
+        </button>
+    </div>
+    
+    <!-- Estatísticas dos Jogadores -->
+    <div class="report-card">
+        <div class="report-icon">👥</div>
+        <div class="report-title">Estatísticas de Jogadores</div>
+        <div class="report-description">
+            Relatório completo com estatísticas de todos os jogadores: vitórias, derrotas, gols, etc.
+        </div>
+        <div class="report-stats">
+            <div class="stat-row">
+                <span>Jogadores Cadastrados:</span>
+                <strong>{{ stats.unique_players }}</strong>
+            </div>
+        </div>
+        <a href="/api/download/players" class="download-btn">
+            📥 Download Estatísticas (.xlsx)
+        </a>
+    </div>
+</div>
+
+<script>
+    // Atualizar contador de hoje
+    fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            // Calcular partidas de hoje
+            const today = new Date().toISOString().split('T')[0];
+            fetch(`/api/matches/count?date=${today}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('todayCount').textContent = data.count || 0;
+                });
+        });
+    
+    // Download personalizado
+    function downloadCustom() {
+        const dateFrom = document.getElementById('date_from').value;
+        const dateTo = document.getElementById('date_to').value;
+        const status = document.getElementById('status').value;
+        
+        if (!dateFrom || !dateTo) {
+            showError('Por favor, selecione a data inicial e final');
+            return;
+        }
+        
+        let url = `/api/download/custom?date_from=${dateFrom}&date_to=${dateTo}`;
+        if (status !== 'all') {
+            url += `&status=${status}`;
+        }
+        
+        window.location.href = url;
+        showSuccess('Download iniciado!');
+    }
+    
+    function showSuccess(message) {
+        const el = document.getElementById('successMsg');
+        el.textContent = message;
+        el.style.display = 'block';
+        setTimeout(() => {
+            el.style.display = 'none';
+        }, 5000);
+    }
+    
+    function showError(message) {
+        const el = document.getElementById('errorMsg');
+        el.textContent = message;
+        el.style.display = 'block';
+        setTimeout(() => {
+            el.style.display = 'none';
+        }, 5000);
+    }
+    
+    // Atualizar período personalizado
+    document.getElementById('date_from').addEventListener('change', updateCustomPeriod);
+    document.getElementById('date_to').addEventListener('change', updateCustomPeriod);
+    
+    function updateCustomPeriod() {
+        const from = document.getElementById('date_from').value;
+        const to = document.getElementById('date_to').value;
+        
+        if (from && to) {
+            document.getElementById('customPeriod').textContent = `${from} até ${to}`;
+        }
+    }
+</script>
+{% endblock %}

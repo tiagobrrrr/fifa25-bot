@@ -1,0 +1,249 @@
+{% extends "layout.html" %}
+
+{% block title %}Jogadores - FIFA 25 Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .players-section {
+        background: white;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    .search-box {
+        margin-bottom: 30px;
+    }
+    
+    .search-input {
+        width: 100%;
+        padding: 15px 20px;
+        font-size: 1.1em;
+        border: 2px solid #e0e0e0;
+        border-radius: 10px;
+        transition: border-color 0.3s;
+    }
+    
+    .search-input:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .players-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+    }
+    
+    .player-card {
+        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+        padding: 25px;
+        border-radius: 15px;
+        border-left: 5px solid #667eea;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        transition: all 0.3s;
+    }
+    
+    .player-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    }
+    
+    .player-header {
+        text-align: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #f0f0f0;
+    }
+    
+    .player-name {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #667eea;
+        margin-bottom: 10px;
+    }
+    
+    .player-matches {
+        color: #999;
+        font-size: 0.9em;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .stat-box {
+        background: white;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+    }
+    
+    .stat-value {
+        font-size: 2em;
+        font-weight: bold;
+        color: #667eea;
+    }
+    
+    .stat-label {
+        font-size: 0.85em;
+        color: #666;
+        margin-top: 5px;
+    }
+    
+    .win-rate {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+    }
+    
+    .win-rate-value {
+        font-size: 2.5em;
+        font-weight: bold;
+    }
+    
+    .win-rate-label {
+        font-size: 0.9em;
+        opacity: 0.9;
+    }
+    
+    .goals-section {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-top: 15px;
+    }
+    
+    .goal-box {
+        background: #f8f9fa;
+        padding: 12px;
+        border-radius: 8px;
+        text-align: center;
+    }
+    
+    .goal-number {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .goal-label {
+        font-size: 0.8em;
+        color: #666;
+        margin-top: 5px;
+    }
+    
+    .positive {
+        color: #27ae60;
+    }
+    
+    .negative {
+        color: #e74c3c;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 80px 20px;
+    }
+    
+    .empty-icon {
+        font-size: 5em;
+        opacity: 0.2;
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>👥 Estatísticas dos Jogadores</h1>
+    <p>Desempenho completo de todos os jogadores</p>
+</div>
+
+<div class="players-section">
+    <div class="search-box">
+        <input type="text" class="search-input" id="searchPlayer" placeholder="🔍 Buscar jogador..." onkeyup="filterPlayers()">
+    </div>
+    
+    {% if players %}
+        <div class="players-grid" id="playersGrid">
+            {% for player in players %}
+            <div class="player-card" data-name="{{ player.nickname|lower }}">
+                <div class="player-header">
+                    <div class="player-name">{{ player.nickname }}</div>
+                    <div class="player-matches">{{ player.total_matches }} partidas jogadas</div>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-value positive">{{ player.wins }}</div>
+                        <div class="stat-label">Vitórias</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value negative">{{ player.losses }}</div>
+                        <div class="stat-label">Derrotas</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">{{ player.draws }}</div>
+                        <div class="stat-label">Empates</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">{{ player.total_matches }}</div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                </div>
+                
+                <div class="win-rate">
+                    <div class="win-rate-value">{{ "%.1f"|format(player.win_rate) }}%</div>
+                    <div class="win-rate-label">Taxa de Vitória</div>
+                </div>
+                
+                <div class="goals-section">
+                    <div class="goal-box">
+                        <div class="goal-number positive">{{ player.goals_scored }}</div>
+                        <div class="goal-label">Gols Feitos</div>
+                    </div>
+                    <div class="goal-box">
+                        <div class="goal-number negative">{{ player.goals_conceded }}</div>
+                        <div class="goal-label">Gols Sofridos</div>
+                    </div>
+                    <div class="goal-box">
+                        <div class="goal-number {% if player.goal_difference >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ "%+d"|format(player.goal_difference) }}
+                        </div>
+                        <div class="goal-label">Saldo</div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">👥</div>
+            <h2>Nenhum jogador encontrado</h2>
+            <p>As estatísticas aparecerão aqui conforme as partidas forem finalizadas</p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+    function filterPlayers() {
+        const searchValue = document.getElementById('searchPlayer').value.toLowerCase();
+        const cards = document.querySelectorAll('.player-card');
+        
+        cards.forEach(card => {
+            const playerName = card.getAttribute('data-name');
+            if (playerName.includes(searchValue)) {
+                card.style.display = 'block';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+    }
+</script>
+{% endblock %}

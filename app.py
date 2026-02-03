@@ -5,8 +5,10 @@ Monitoramento de partidas do ESportsBattle
 
 import os
 import logging
-from datetime import datetime, timedelta
-from flask import Flask, render_template, jsonify, request
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
+import pytz
+from flask import Flask, render_template, jsonify, request, send_file
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -35,6 +37,17 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 
 # Inicialização do banco de dados
 db = SQLAlchemy(app)
+
+# Timezone de Brasília
+BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
+
+def to_brasilia_time(dt):
+    """Converte datetime UTC para horário de Brasília"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BRASILIA_TZ)
 
 # Definir modelos inline para evitar import circular
 class Match(db.Model):
@@ -752,195 +765,6 @@ def index():
         """, 500
 
 
-@app.route('/matches')
-def matches():
-    """Página de partidas"""
-    status_filter = request.args.get('status', 'all')
-    page = request.args.get('page', 1, type=int)
-    per_page = 50
-    
-    query = Match.query
-    
-    if status_filter == 'live':
-        query = query.filter_by(status_id=2)
-    elif status_filter == 'upcoming':
-        query = query.filter_by(status_id=1)
-    elif status_filter == 'finished':
-        query = query.filter_by(status_id=3)
-    
-    # Paginar resultados
-    pagination_obj = query.order_by(Match.date.desc()).paginate(
-        page=page,
-        per_page=per_page,
-        error_out=False
-    )
-    
-    matches_list = pagination_obj.items
-    
-    # Objeto de paginação para o template
-    pagination = {
-        'page': page,
-        'pages': pagination_obj.pages,
-        'total': pagination_obj.total,
-        'per_page': per_page,
-        'has_prev': pagination_obj.has_prev,
-        'has_next': pagination_obj.has_next,
-        'prev_num': pagination_obj.prev_num,
-        'next_num': pagination_obj.next_num
-    }
-    
-    return render_template('matches.html', 
-                         matches=matches_list, 
-                         status=status_filter,
-                         pagination=pagination)
-
-
-@app.route('/history')
-def history():
-    """Página de histórico de partidas finalizadas"""
-    page = request.args.get('page', 1, type=int)
-    per_page = 20
-    
-    # Filtros
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    player_filter = request.args.get('player', '')
-    team_filter = request.args.get('team', '')
-    
-    # Query base - apenas finalizadas
-    query = Match.query.filter_by(status_id=3)
-    
-    # Aplicar filtros
-    if date_from:
-        try:
-            from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
-            query = query.filter(db.func.date(Match.date) >= from_date)
-        except:
-            pass
-    
-    if date_to:
-        try:
-            to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
-            query = query.filter(db.func.date(Match.date) <= to_date)
-        except:
-            pass
-    
-    if player_filter:
-        query = query.filter(
-            db.or_(
-                Match.player1_nickname.ilike(f'%{player_filter}%'),
-                Match.player2_nickname.ilike(f'%{player_filter}%')
-            )
-        )
-    
-    if team_filter:
-        query = query.filter(
-            db.or_(
-                Match.player1_team_name.ilike(f'%{team_filter}%'),
-                Match.player2_team_name.ilike(f'%{team_filter}%')
-            )
-        )
-    
-    # Paginar
-    pagination_obj = query.order_by(Match.date.desc()).paginate(
-        page=page,
-        per_page=per_page,
-        error_out=False
-    )
-    
-    matches_list = pagination_obj.items
-    
-    pagination = {
-        'page': page,
-        'pages': pagination_obj.pages,
-        'total': pagination_obj.total,
-        'per_page': per_page,
-        'has_prev': pagination_obj.has_prev,
-        'has_next': pagination_obj.has_next,
-        'prev_num': pagination_obj.prev_num,
-        'next_num': pagination_obj.next_num
-    }
-    
-    return render_template('history.html',
-                         matches=matches_list,
-                         pagination=pagination,
-                         total_matches=pagination_obj.total,
-                         date_from=date_from,
-                         date_to=date_to,
-                         player_filter=player_filter,
-                         team_filter=team_filter)
-
-
-@app.route('/upcoming')
-def upcoming():
-    """Página de partidas agendadas"""
-    page = request.args.get('page', 1, type=int)
-    per_page = 30
-    
-    # Query - apenas agendadas
-    query = Match.query.filter_by(status_id=1)
-    
-    # Paginar
-    pagination_obj = query.order_by(Match.date.asc()).paginate(
-        page=page,
-        per_page=per_page,
-        error_out=False
-    )
-    
-    matches_list = pagination_obj.items
-    
-    pagination = {
-        'page': page,
-        'pages': pagination_obj.pages,
-        'total': pagination_obj.total,
-        'per_page': per_page,
-        'has_prev': pagination_obj.has_prev,
-        'has_next': pagination_obj.has_next,
-        'prev_num': pagination_obj.prev_num,
-        'next_num': pagination_obj.next_num
-    }
-    
-    return render_template('upcoming.html',
-                         matches=matches_list,
-                         pagination=pagination,
-                         total_matches=pagination_obj.total)
-
-
-@app.route('/players')
-def players():
-    """Página de jogadores"""
-    # Buscar jogadores únicos
-    players_data = db.session.query(
-        Match.player1_id,
-        Match.player1_nickname,
-        Match.player1_photo,
-        db.func.count(Match.id).label('matches_count')
-    ).filter(
-        Match.player1_id.isnot(None)
-    ).group_by(
-        Match.player1_id,
-        Match.player1_nickname,
-        Match.player1_photo
-    ).all()
-    
-    return render_template('players.html', players=players_data)
-
-
-@app.route('/reports')
-def reports():
-    """Página de relatórios"""
-    today = datetime.now().date()
-    
-    # Estatísticas do dia
-    today_matches = Match.query.filter(
-        db.func.date(Match.date) == today
-    ).count()
-    
-    live_matches = Match.query.filter_by(status_id=2).count()
-    finished_today = Match.query.filter(
-        db.func.date(Match.date) == today,
-        Match.status_id == 3
-    ).count()
     
     report_data = {
         'today_matches': today_matches,
@@ -1047,6 +871,327 @@ def setup_scheduler():
     
     return scheduler
 
+
+
+# ==================== NOVAS ROTAS - ABAS COMPLETAS ====================
+
+def calculate_player_stats(player_id):
+    """Calcula estatísticas de um jogador"""
+    matches = Match.query.filter(
+        db.or_(
+            Match.player1_id == player_id,
+            Match.player2_id == player_id
+        ),
+        Match.status_id == 3
+    ).all()
+    
+    if not matches:
+        return None
+    
+    stats = {
+        'player_id': player_id,
+        'nickname': '',
+        'total_matches': 0,
+        'wins': 0,
+        'losses': 0,
+        'draws': 0,
+        'goals_scored': 0,
+        'goals_conceded': 0,
+        'goal_difference': 0,
+        'win_rate': 0.0
+    }
+    
+    for match in matches:
+        is_player1 = match.player1_id == player_id
+        
+        if is_player1 and not stats['nickname']:
+            stats['nickname'] = match.player1_nickname or 'Unknown'
+        elif not is_player1 and not stats['nickname']:
+            stats['nickname'] = match.player2_nickname or 'Unknown'
+        
+        if match.score1 is not None and match.score2 is not None:
+            stats['total_matches'] += 1
+            
+            if is_player1:
+                stats['goals_scored'] += match.score1
+                stats['goals_conceded'] += match.score2
+                
+                if match.score1 > match.score2:
+                    stats['wins'] += 1
+                elif match.score1 < match.score2:
+                    stats['losses'] += 1
+                else:
+                    stats['draws'] += 1
+            else:
+                stats['goals_scored'] += match.score2
+                stats['goals_conceded'] += match.score1
+                
+                if match.score2 > match.score1:
+                    stats['wins'] += 1
+                elif match.score2 < match.score1:
+                    stats['losses'] += 1
+                else:
+                    stats['draws'] += 1
+    
+    stats['goal_difference'] = stats['goals_scored'] - stats['goals_conceded']
+    
+    if stats['total_matches'] > 0:
+        stats['win_rate'] = round((stats['wins'] / stats['total_matches']) * 100, 1)
+    
+    return stats
+
+
+@app.route('/matches')
+def live_matches():
+    """Página de partidas ao vivo"""
+    matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).all()
+    
+    for match in matches_list:
+        if match.date:
+            match.date_brasilia = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
+    
+    return render_template('matches.html', matches=matches_list, total_matches=len(matches_list))
+
+
+@app.route('/players')
+def players_stats():
+    """Página de estatísticas dos jogadores"""
+    players_data = []
+    player_ids = set()
+    all_matches = Match.query.filter_by(status_id=3).all()
+    
+    for match in all_matches:
+        if match.player1_id:
+            player_ids.add(match.player1_id)
+        if match.player2_id:
+            player_ids.add(match.player2_id)
+    
+    for player_id in player_ids:
+        stats = calculate_player_stats(player_id)
+        if stats and stats['total_matches'] > 0:
+            players_data.append(stats)
+    
+    players_data.sort(key=lambda x: x['win_rate'], reverse=True)
+    
+    return render_template('players.html', players=players_data)
+
+
+@app.route('/reports')
+def reports_page():
+    """Página de relatórios"""
+    report_stats = {
+        'total_matches': Match.query.count(),
+        'finished_matches': Match.query.filter_by(status_id=3).count(),
+        'live_matches': Match.query.filter_by(status_id=2).count(),
+        'unique_players': 0
+    }
+    
+    player_ids = set()
+    all_matches = Match.query.all()
+    for match in all_matches:
+        if match.player1_id:
+            player_ids.add(match.player1_id)
+        if match.player2_id:
+            player_ids.add(match.player2_id)
+    
+    report_stats['unique_players'] = len(player_ids)
+    
+    return render_template('reports.html', stats=report_stats)
+
+
+@app.route('/history')
+def history_recent():
+    """Página de histórico - últimos 30 minutos"""
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    
+    thirty_min_ago = datetime.now() - timedelta(minutes=30)
+    
+    query = Match.query.filter(Match.status_id == 3, Match.updated_at >= thirty_min_ago)
+    
+    pagination_obj = query.order_by(Match.updated_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    matches_list = pagination_obj.items
+    
+    for match in matches_list:
+        if match.date:
+            match.date = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
+    
+    pagination = {
+        'page': page,
+        'pages': pagination_obj.pages,
+        'total': pagination_obj.total,
+        'per_page': per_page,
+        'has_prev': pagination_obj.has_prev,
+        'has_next': pagination_obj.has_next,
+        'prev_num': pagination_obj.prev_num,
+        'next_num': pagination_obj.next_num
+    }
+    
+    return render_template('history.html', matches=matches_list, pagination=pagination, total_matches=pagination_obj.total, date_from='', date_to='', player_filter='', team_filter='')
+
+
+@app.route('/upcoming')
+def upcoming():
+    """Página de partidas agendadas"""
+    page = request.args.get('page', 1, type=int)
+    per_page = 30
+    
+    query = Match.query.filter_by(status_id=1)
+    
+    pagination_obj = query.order_by(Match.date.asc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    matches_list = pagination_obj.items
+    
+    for match in matches_list:
+        if match.date:
+            match.date = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
+    
+    pagination = {
+        'page': page,
+        'pages': pagination_obj.pages,
+        'total': pagination_obj.total,
+        'per_page': per_page,
+        'has_prev': pagination_obj.has_prev,
+        'has_next': pagination_obj.has_next,
+        'prev_num': pagination_obj.prev_num,
+        'next_num': pagination_obj.next_num
+    }
+    
+    return render_template('upcoming.html', matches=matches_list, pagination=pagination, total_matches=pagination_obj.total)
+
+
+def generate_excel_report(matches, filename):
+    """Gera relatório Excel"""
+    import pandas as pd
+    
+    data = []
+    for match in matches:
+        data.append({
+            'Match ID': match.match_id,
+            'Data': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
+            'Status': {1: 'Agendada', 2: 'Ao Vivo', 3: 'Finalizada', 4: 'Cancelada'}.get(match.status_id, 'N/A'),
+            'Jogador 1': match.player1_nickname,
+            'Time 1': match.player1_team_name,
+            'Placar 1': match.score1 if match.score1 is not None else '-',
+            'Jogador 2': match.player2_nickname,
+            'Time 2': match.player2_team_name,
+            'Placar 2': match.score2 if match.score2 is not None else '-',
+            'Estádio': match.location_name,
+            'Torneio': match.tournament_token
+        })
+    
+    df = pd.DataFrame(data)
+    
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Partidas', index=False)
+        
+        worksheet = writer.sheets['Partidas']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(cell.value)
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+    
+    output.seek(0)
+    
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f'{filename}.xlsx')
+
+
+@app.route('/api/download/all')
+def download_all():
+    """Download de todas as partidas"""
+    matches = Match.query.all()
+    return generate_excel_report(matches, 'FIFA25_Todas_Partidas')
+
+
+@app.route('/api/download/today')
+def download_today():
+    """Download das partidas de hoje"""
+    today = datetime.now().date()
+    matches = Match.query.filter(db.func.date(Match.date) == today).all()
+    return generate_excel_report(matches, 'FIFA25_Partidas_Hoje')
+
+
+@app.route('/api/download/custom')
+def download_custom():
+    """Download personalizado"""
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    status = request.args.get('status', 'all')
+    
+    query = Match.query
+    
+    if date_from:
+        from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+        query = query.filter(db.func.date(Match.date) >= from_date)
+    
+    if date_to:
+        to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+        query = query.filter(db.func.date(Match.date) <= to_date)
+    
+    if status != 'all':
+        status_map = {'finished': 3, 'live': 2, 'upcoming': 1}
+        query = query.filter_by(status_id=status_map.get(status, 3))
+    
+    matches = query.all()
+    filename = f'FIFA25_Personalizado_{date_from}_a_{date_to}'
+    return generate_excel_report(matches, filename)
+
+
+@app.route('/api/download/players')
+def download_players():
+    """Download estatísticas dos jogadores"""
+    import pandas as pd
+    
+    players_data = []
+    player_ids = set()
+    
+    all_matches = Match.query.filter_by(status_id=3).all()
+    
+    for match in all_matches:
+        if match.player1_id:
+            player_ids.add(match.player1_id)
+        if match.player2_id:
+            player_ids.add(match.player2_id)
+    
+    for player_id in player_ids:
+        stats = calculate_player_stats(player_id)
+        if stats and stats['total_matches'] > 0:
+            players_data.append(stats)
+    
+    df = pd.DataFrame(players_data)
+    
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Estatísticas', index=False)
+    
+    output.seek(0)
+    
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='FIFA25_Estatisticas_Jogadores.xlsx')
+
+
+@app.route('/api/matches/count')
+def matches_count():
+    """Conta partidas por data"""
+    date_str = request.args.get('date')
+    
+    if date_str:
+        try:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+            count = Match.query.filter(db.func.date(Match.date) == date_obj).count()
+            return jsonify({'count': count, 'date': date_str})
+        except:
+            return jsonify({'error': 'Data inválida'}), 400
+    
+    return jsonify({'error': 'Data não fornecida'}), 400
 
 # ==================== INICIALIZAÇÃO ====================
 

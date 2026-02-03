@@ -1,0 +1,222 @@
+{% extends "layout.html" %}
+
+{% block title %}Partidas Ao Vivo - FIFA 25 Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .live-header {
+        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 30px;
+        box-shadow: 0 5px 20px rgba(231, 76, 60, 0.3);
+    }
+    
+    .live-count {
+        font-size: 3em;
+        font-weight: bold;
+        margin: 10px 0;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.8; transform: scale(1.05); }
+    }
+    
+    .matches-grid {
+        display: grid;
+        gap: 20px;
+    }
+    
+    .match-card {
+        background: white;
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        border-left: 5px solid #e74c3c;
+        transition: all 0.3s;
+    }
+    
+    .match-card:hover {
+        transform: translateX(5px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    }
+    
+    .match-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .live-badge {
+        background: #e74c3c;
+        color: white;
+        padding: 8px 20px;
+        border-radius: 25px;
+        font-weight: bold;
+        animation: blink 1.5s infinite;
+    }
+    
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+    }
+    
+    .match-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 30px;
+    }
+    
+    .player-section {
+        flex: 1;
+        text-align: center;
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+    }
+    
+    .player-name {
+        font-size: 1.4em;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 10px;
+    }
+    
+    .player-team {
+        color: #666;
+        margin-bottom: 15px;
+    }
+    
+    .live-score {
+        font-size: 3em;
+        font-weight: bold;
+        color: #e74c3c;
+        margin-top: 10px;
+    }
+    
+    .vs-divider {
+        font-size: 2em;
+        font-weight: bold;
+        color: #e74c3c;
+    }
+    
+    .match-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 2px dashed #f0f0f0;
+    }
+    
+    .detail-item {
+        background: #f8f9fa;
+        padding: 12px;
+        border-radius: 8px;
+        text-align: center;
+        font-size: 0.9em;
+    }
+    
+    .detail-icon {
+        font-size: 1.5em;
+        margin-bottom: 5px;
+    }
+    
+    .empty-state {
+        background: white;
+        padding: 80px 40px;
+        border-radius: 15px;
+        text-align: center;
+    }
+    
+    .empty-icon {
+        font-size: 5em;
+        opacity: 0.2;
+        margin-bottom: 20px;
+    }
+    
+    .refresh-timer {
+        background: white;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+        margin-top: 20px;
+        color: #666;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="live-header">
+    <h1>🔴 PARTIDAS AO VIVO</h1>
+    <div class="live-count">{{ total_matches }}</div>
+    <p>partidas acontecendo agora</p>
+</div>
+
+{% if matches %}
+    <div class="matches-grid">
+        {% for match in matches %}
+        <div class="match-card">
+            <div class="match-header">
+                <strong>Match #{{ match.match_id }}</strong>
+                <span class="live-badge">🔴 AO VIVO</span>
+            </div>
+            
+            <div class="match-content">
+                <div class="player-section">
+                    <div class="player-name">{{ match.player1_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player1_team_name }}</div>
+                    <div class="live-score">{{ match.score1 if match.score1 is not none else '-' }}</div>
+                </div>
+                
+                <div class="vs-divider">VS</div>
+                
+                <div class="player-section">
+                    <div class="player-name">{{ match.player2_nickname }}</div>
+                    <div class="player-team">⚽ {{ match.player2_team_name }}</div>
+                    <div class="live-score">{{ match.score2 if match.score2 is not none else '-' }}</div>
+                </div>
+            </div>
+            
+            <div class="match-details">
+                <div class="detail-item">
+                    <div class="detail-icon">📍</div>
+                    <div>{{ match.location_name }}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-icon">🏆</div>
+                    <div>{{ match.tournament_token }}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-icon">🎮</div>
+                    <div>{{ match.console_token }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty-state">
+        <div class="empty-icon">🎮</div>
+        <h2>Nenhuma partida ao vivo</h2>
+        <p>Aguardando início das partidas...</p>
+    </div>
+{% endif %}
+
+<div class="refresh-timer">
+    ⏱️ Atualizando automaticamente a cada 10 segundos
+</div>
+
+<script>
+    // Auto-refresh a cada 10 segundos
+    setTimeout(function() {
+        location.reload();
+    }, 10000);
+</script>
+{% endblock %}
