@@ -1,0 +1,161 @@
+{% extends "layout.html" %}
+
+{% block title %}Estatísticas - FIFA 25 Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .stadium-stats {
+        background: white;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+    }
+    
+    .stadium-title {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 25px;
+    }
+    
+    .stadium-title h2 {
+        margin: 0;
+        font-size: 1.8em;
+    }
+    
+    .stats-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+    
+    .stats-table thead {
+        background: #f8f9fa;
+    }
+    
+    .stats-table th {
+        padding: 15px;
+        text-align: left;
+        font-weight: bold;
+        color: #667eea;
+        border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .stats-table td {
+        padding: 12px 15px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .stats-table tr:hover {
+        background: #f8f9fa;
+    }
+    
+    .player-name-cell {
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .stat-number {
+        font-weight: bold;
+        text-align: center;
+    }
+    
+    .wins {
+        color: #27ae60;
+    }
+    
+    .losses {
+        color: #e74c3c;
+    }
+    
+    .goals-for {
+        color: #3498db;
+    }
+    
+    .goals-against {
+        color: #e67e22;
+    }
+    
+    .championships {
+        background: #f39c12;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 15px;
+        font-size: 0.9em;
+        display: inline-block;
+    }
+    
+    .no-data {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📊 Estatísticas dos Jogadores</h1>
+    <p>Desempenho completo por estádio</p>
+</div>
+
+{% if stats_by_stadium %}
+    {% for stadium, players in stats_by_stadium.items() %}
+    <div class="stadium-stats">
+        <div class="stadium-title">
+            <span style="font-size: 2em;">📍</span>
+            <h2>{{ stadium }}</h2>
+        </div>
+        
+        <table class="stats-table">
+            <thead>
+                <tr>
+                    <th>Jogador</th>
+                    <th style="text-align: center;">Vitórias</th>
+                    <th style="text-align: center;">Derrotas</th>
+                    <th style="text-align: center;">Gols Marcados</th>
+                    <th style="text-align: center;">Gols Sofridos</th>
+                    <th style="text-align: center;">Saldo</th>
+                    <th>Campeonatos Ganhos</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for player in players %}
+                <tr>
+                    <td class="player-name-cell">{{ player.name }}</td>
+                    <td class="stat-number wins">{{ player.wins }}</td>
+                    <td class="stat-number losses">{{ player.losses }}</td>
+                    <td class="stat-number goals-for">{{ player.goals_scored }}</td>
+                    <td class="stat-number goals-against">{{ player.goals_conceded }}</td>
+                    <td class="stat-number {% if player.goal_diff >= 0 %}wins{% else %}losses{% endif %}">
+                        {{ "%+d"|format(player.goal_diff) }}
+                    </td>
+                    <td>
+                        {% if player.championships %}
+                            {% for champ in player.championships %}
+                            <span class="championships">🏆 {{ champ }}</span>
+                            {% endfor %}
+                        {% else %}
+                            <span style="color: #999;">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="stadium-stats">
+        <div class="no-data">
+            <h2>Nenhuma estatística disponível</h2>
+            <p>As estatísticas aparecerão conforme as partidas forem finalizadas</p>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

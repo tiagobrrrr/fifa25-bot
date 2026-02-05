@@ -954,26 +954,37 @@ def live_matches():
 
 
 @app.route('/players')
-def players_stats():
-    """Página de estatísticas dos jogadores"""
-    players_data = []
-    player_ids = set()
-    all_matches = Match.query.filter_by(status_id=3).all()
+def players_by_stadium():
+    """Aba Jogadores - Players ativos por estádio"""
+    try:
+        # Buscar todos os jogadores únicos agrupados por estádio
+        players_by_stadium = {}
+        
+        # Buscar todas as partidas
+        matches = Match.query.all()
+        
+        for match in matches:
+            stadium = match.location_name or 'Estádio Desconhecido'
+            
+            if stadium not in players_by_stadium:
+                players_by_stadium[stadium] = set()
+            
+            if match.player1_nickname:
+                players_by_stadium[stadium].add(match.player1_nickname)
+            if match.player2_nickname:
+                players_by_stadium[stadium].add(match.player2_nickname)
+        
+        # Converter sets para listas ordenadas
+        players_by_stadium = {
+            stadium: sorted(list(players)) 
+            for stadium, players in sorted(players_by_stadium.items())
+        }
+        
+        return render_template('players.html', players_by_stadium=players_by_stadium)
     
-    for match in all_matches:
-        if match.player1_id:
-            player_ids.add(match.player1_id)
-        if match.player2_id:
-            player_ids.add(match.player2_id)
-    
-    for player_id in player_ids:
-        stats = calculate_player_stats(player_id)
-        if stats and stats['total_matches'] > 0:
-            players_data.append(stats)
-    
-    players_data.sort(key=lambda x: x['win_rate'], reverse=True)
-    
-    return render_template('players.html', players=players_data)
+    except Exception as e:
+        logger.error(f"❌ Erro na rota /players: {e}")
+        return render_template('players.html', players_by_stadium={})
 
 
 @app.route('/reports')
@@ -1078,6 +1089,99 @@ def history_recent():
                              error=str(e))
 
 
+@app.route('/statistics')
+def statistics():
+    """Aba Estatísticas - Pontuação completa por estádio"""
+    try:
+        stats_by_stadium = {}
+        
+        # Buscar todas as partidas finalizadas
+        finished_matches = Match.query.filter_by(status_id=3).all()
+        
+        # Organizar por estádio
+        for match in finished_matches:
+            stadium = match.location_name or 'Estádio Desconhecido'
+            
+            if stadium not in stats_by_stadium:
+                stats_by_stadium[stadium] = {}
+            
+            # Processar Player 1
+            if match.player1_nickname:
+                p1_name = match.player1_nickname
+                
+                if p1_name not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p1_name] = {
+                        'name': p1_name,
+                        'wins': 0,
+                        'losses': 0,
+                        'goals_scored': 0,
+                        'goals_conceded': 0,
+                        'goal_diff': 0,
+                        'championships': set()
+                    }
+                
+                if match.score1 is not None and match.score2 is not None:
+                    stats_by_stadium[stadium][p1_name]['goals_scored'] += match.score1
+                    stats_by_stadium[stadium][p1_name]['goals_conceded'] += match.score2
+                    
+                    if match.score1 > match.score2:
+                        stats_by_stadium[stadium][p1_name]['wins'] += 1
+                        if match.tournament_token:
+                            stats_by_stadium[stadium][p1_name]['championships'].add(match.tournament_token)
+                    elif match.score1 < match.score2:
+                        stats_by_stadium[stadium][p1_name]['losses'] += 1
+            
+            # Processar Player 2
+            if match.player2_nickname:
+                p2_name = match.player2_nickname
+                
+                if p2_name not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p2_name] = {
+                        'name': p2_name,
+                        'wins': 0,
+                        'losses': 0,
+                        'goals_scored': 0,
+                        'goals_conceded': 0,
+                        'goal_diff': 0,
+                        'championships': set()
+                    }
+                
+                if match.score1 is not None and match.score2 is not None:
+                    stats_by_stadium[stadium][p2_name]['goals_scored'] += match.score2
+                    stats_by_stadium[stadium][p2_name]['goals_conceded'] += match.score1
+                    
+                    if match.score2 > match.score1:
+                        stats_by_stadium[stadium][p2_name]['wins'] += 1
+                        if match.tournament_token:
+                            stats_by_stadium[stadium][p2_name]['championships'].add(match.tournament_token)
+                    elif match.score2 < match.score1:
+                        stats_by_stadium[stadium][p2_name]['losses'] += 1
+        
+        # Calcular saldo de gols e converter championships para lista
+        for stadium in stats_by_stadium:
+            for player_name in stats_by_stadium[stadium]:
+                player = stats_by_stadium[stadium][player_name]
+                player['goal_diff'] = player['goals_scored'] - player['goals_conceded']
+                player['championships'] = sorted(list(player['championships']))
+        
+        # Converter para lista ordenada por vitórias
+        stats_by_stadium_sorted = {}
+        for stadium, players in sorted(stats_by_stadium.items()):
+            stats_by_stadium_sorted[stadium] = sorted(
+                players.values(),
+                key=lambda x: x['wins'],
+                reverse=True
+            )
+        
+        return render_template('statistics.html', stats_by_stadium=stats_by_stadium_sorted)
+    
+    except Exception as e:
+        logger.error(f"❌ Erro na rota /statistics: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return render_template('statistics.html', stats_by_stadium={})
+
+
 @app.route('/upcoming')
 def upcoming():
     """Página de partidas agendadas"""
@@ -1109,72 +1213,190 @@ def upcoming():
 
 
 def generate_excel_report(matches, filename):
-    """Gera relatório Excel"""
+    """Gera relatório Excel com formatação (verde/vermelho) separado por estádio"""
     import pandas as pd
+    from openpyxl.styles import PatternFill
     
-    data = []
+    # Agrupar partidas por estádio
+    matches_by_stadium = {}
     for match in matches:
-        data.append({
-            'Match ID': match.match_id,
-            'Data': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
-            'Status': {1: 'Agendada', 2: 'Ao Vivo', 3: 'Finalizada', 4: 'Cancelada'}.get(match.status_id, 'N/A'),
-            'Jogador 1': match.player1_nickname,
-            'Time 1': match.player1_team_name,
-            'Placar 1': match.score1 if match.score1 is not None else '-',
-            'Jogador 2': match.player2_nickname,
-            'Time 2': match.player2_team_name,
-            'Placar 2': match.score2 if match.score2 is not None else '-',
-            'Estádio': match.location_name,
-            'Torneio': match.tournament_token
-        })
-    
-    df = pd.DataFrame(data)
+        stadium = match.location_name or 'Estádio Desconhecido'
+        
+        if stadium not in matches_by_stadium:
+            matches_by_stadium[stadium] = []
+        
+        matches_by_stadium[stadium].append(match)
     
     output = BytesIO()
+    
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Partidas', index=False)
+        # Criar uma aba para cada estádio
+        for stadium, stadium_matches in sorted(matches_by_stadium.items()):
+            data = []
+            
+            for match in stadium_matches:
+                data.append({
+                    'Data/Hora': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
+                    'Jogador 1': match.player1_nickname or 'N/A',
+                    'Time 1': match.player1_team_name or 'N/A',
+                    'Gols P1': match.score1 if match.score1 is not None else 0,
+                    'Gols P2': match.score2 if match.score2 is not None else 0,
+                    'Jogador 2': match.player2_nickname or 'N/A',
+                    'Time 2': match.player2_team_name or 'N/A',
+                    'Torneio': match.tournament_token or 'N/A',
+                    'Vencedor': ''
+                })
+                
+                # Determinar vencedor
+                if match.score1 is not None and match.score2 is not None:
+                    if match.score1 > match.score2:
+                        data[-1]['Vencedor'] = match.player1_nickname
+                    elif match.score2 > match.score1:
+                        data[-1]['Vencedor'] = match.player2_nickname
+                    else:
+                        data[-1]['Vencedor'] = 'Empate'
+            
+            if data:
+                df = pd.DataFrame(data)
+                
+                # Nome da aba (máximo 31 caracteres)
+                sheet_name = stadium[:31] if len(stadium) > 31 else stadium
+                
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                # Formatação
+                worksheet = writer.sheets[sheet_name]
+                
+                # Cores
+                green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
+                red_fill = PatternFill(start_color='FFB6C1', end_color='FFB6C1', fill_type='solid')
+                
+                # Aplicar formatação
+                for row_idx, row_data in enumerate(data, start=2):
+                    vencedor = row_data['Vencedor']
+                    p1_name = row_data['Jogador 1']
+                    p2_name = row_data['Jogador 2']
+                    
+                    # Célula B (Jogador 1)
+                    if vencedor == p1_name:
+                        worksheet[f'B{row_idx}'].fill = green_fill
+                    elif vencedor == p2_name and vencedor != 'Empate':
+                        worksheet[f'B{row_idx}'].fill = red_fill
+                    
+                    # Célula F (Jogador 2)
+                    if vencedor == p2_name:
+                        worksheet[f'F{row_idx}'].fill = green_fill
+                    elif vencedor == p1_name and vencedor != 'Empate':
+                        worksheet[f'F{row_idx}'].fill = red_fill
+                
+                # Ajustar largura das colunas
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(cell.value)
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
         
-        worksheet = writer.sheets['Partidas']
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(cell.value)
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            worksheet.column_dimensions[column_letter].width = adjusted_width
+        # Adicionar aba de estatísticas
+        stats_data = []
+        stats_by_player = {}
+        
+        for match in matches:
+            if match.player1_nickname and match.score1 is not None and match.score2 is not None:
+                p1 = match.player1_nickname
+                if p1 not in stats_by_player:
+                    stats_by_player[p1] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0, 'championships': set()}
+                
+                stats_by_player[p1]['goals_for'] += match.score1
+                stats_by_player[p1]['goals_against'] += match.score2
+                
+                if match.score1 > match.score2:
+                    stats_by_player[p1]['wins'] += 1
+                    if match.tournament_token:
+                        stats_by_player[p1]['championships'].add(match.tournament_token)
+                elif match.score1 < match.score2:
+                    stats_by_player[p1]['losses'] += 1
+            
+            if match.player2_nickname and match.score1 is not None and match.score2 is not None:
+                p2 = match.player2_nickname
+                if p2 not in stats_by_player:
+                    stats_by_player[p2] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0, 'championships': set()}
+                
+                stats_by_player[p2]['goals_for'] += match.score2
+                stats_by_player[p2]['goals_against'] += match.score1
+                
+                if match.score2 > match.score1:
+                    stats_by_player[p2]['wins'] += 1
+                    if match.tournament_token:
+                        stats_by_player[p2]['championships'].add(match.tournament_token)
+                elif match.score2 < match.score1:
+                    stats_by_player[p2]['losses'] += 1
+        
+        for player, stats in stats_by_player.items():
+            stats_data.append({
+                'Jogador': player,
+                'Vitórias': stats['wins'],
+                'Derrotas': stats['losses'],
+                'Gols Marcados': stats['goals_for'],
+                'Gols Sofridos': stats['goals_against'],
+                'Saldo': stats['goals_for'] - stats['goals_against'],
+                'Campeonatos': ', '.join(sorted(stats['championships'])) if stats['championships'] else '-'
+            })
+        
+        if stats_data:
+            df_stats = pd.DataFrame(stats_data)
+            df_stats = df_stats.sort_values('Vitórias', ascending=False)
+            df_stats.to_excel(writer, sheet_name='Estatísticas', index=False)
+            
+            worksheet_stats = writer.sheets['Estatísticas']
+            for column in worksheet_stats.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(cell.value)
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet_stats.column_dimensions[column_letter].width = adjusted_width
     
     output.seek(0)
     
     return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f'{filename}.xlsx')
 
 
+
 @app.route('/api/download/all')
 def download_all():
-    """Download de todas as partidas"""
-    matches = Match.query.all()
+    """Download de todas as partidas finalizadas"""
+    matches = Match.query.filter_by(status_id=3).all()  # Apenas finalizadas
     return generate_excel_report(matches, 'FIFA25_Todas_Partidas')
 
 
 @app.route('/api/download/today')
 def download_today():
-    """Download das partidas de hoje"""
+    """Download das partidas finalizadas de hoje"""
     today = datetime.now().date()
-    matches = Match.query.filter(db.func.date(Match.date) == today).all()
+    matches = Match.query.filter(
+        db.func.date(Match.date) == today,
+        Match.status_id == 3  # Apenas finalizadas
+    ).all()
     return generate_excel_report(matches, 'FIFA25_Partidas_Hoje')
 
 
 @app.route('/api/download/custom')
 def download_custom():
-    """Download personalizado"""
+    """Download personalizado - apenas finalizadas"""
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
-    status = request.args.get('status', 'all')
     
-    query = Match.query
+    query = Match.query.filter_by(status_id=3)  # Apenas finalizadas
     
     if date_from:
         from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
@@ -1183,10 +1405,6 @@ def download_custom():
     if date_to:
         to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
         query = query.filter(db.func.date(Match.date) <= to_date)
-    
-    if status != 'all':
-        status_map = {'finished': 3, 'live': 2, 'upcoming': 1}
-        query = query.filter_by(status_id=status_map.get(status, 3))
     
     matches = query.all()
     filename = f'FIFA25_Personalizado_{date_from}_a_{date_to}'

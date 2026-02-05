@@ -98,9 +98,9 @@
             <a href="/" class="logo">🎮 FIFA 25 Bot</a>
             <ul class="nav-links">
                 <li><a href="/" {% if request.path == '/' %}class="active"{% endif %}>Dashboard</a></li>
-                <li><a href="/matches?status=live" {% if request.path == '/matches' %}class="active"{% endif %}>Partidas Ao Vivo</a></li>
+                <li><a href="/matches" {% if request.path == '/matches' %}class="active"{% endif %}>Partidas Ao Vivo</a></li>
                 <li><a href="/upcoming" {% if request.path == '/upcoming' %}class="active"{% endif %}>Agendadas</a></li>
-                <li><a href="/history" {% if request.path == '/history' %}class="active"{% endif %}>Histórico</a></li>
+                <li><a href="/statistics" {% if request.path == '/statistics' %}class="active"{% endif %}>Estatísticas</a></li>
                 <li><a href="/players" {% if request.path == '/players' %}class="active"{% endif %}>Jogadores</a></li>
                 <li><a href="/reports" {% if request.path == '/reports' %}class="active"{% endif %}>Relatórios</a></li>
             </ul>

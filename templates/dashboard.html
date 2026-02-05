@@ -235,8 +235,38 @@
 {% block content %}
 <div class="page-header">
     <h1>Dashboard</h1>
-    <p>Status: <strong style="color: #27ae60;">{{ stats.status }}</strong> | Última atualização: {{ stats.last_scan_formatted }}</p>
+    <div id="clock" style="font-size: 2em; font-weight: bold; color: #667eea; margin-top: 10px;">
+        <span id="time">--:--</span>
+        <span id="date" style="font-size: 0.6em; color: #999; margin-left: 20px;">--/--/----</span>
+    </div>
 </div>
+
+<script>
+function updateClock() {
+    const now = new Date();
+    
+    // Converter para horário de Brasília (UTC-3)
+    const brasiliaOffset = -3 * 60; // -3 horas em minutos
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const brasiliaTime = new Date(utc + (brasiliaOffset * 60000));
+    
+    // Formatar hora (HH:MM)
+    const hours = String(brasiliaTime.getHours()).padStart(2, '0');
+    const minutes = String(brasiliaTime.getMinutes()).padStart(2, '0');
+    
+    // Formatar data (DD/MM/YYYY)
+    const day = String(brasiliaTime.getDate()).padStart(2, '0');
+    const month = String(brasiliaTime.getMonth() + 1).padStart(2, '0');
+    const year = brasiliaTime.getFullYear();
+    
+    document.getElementById('time').textContent = hours + ':' + minutes;
+    document.getElementById('date').textContent = day + '/' + month + '/' + year;
+}
+
+// Atualizar a cada segundo
+setInterval(updateClock, 1000);
+updateClock(); // Executar imediatamente
+</script>
 
 <!-- Estatísticas Gerais -->
 <div class="stats-grid">

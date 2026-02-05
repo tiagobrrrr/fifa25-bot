@@ -1,249 +1,129 @@
 {% extends "layout.html" %}
 
-{% block title %}Jogadores - FIFA 25 Bot{% endblock %}
+{% block title %}Jogadores Ativos - FIFA 25 Bot{% endblock %}
 
 {% block extra_styles %}
 <style>
-    .players-section {
+    .stadium-section {
         background: white;
         padding: 30px;
         border-radius: 15px;
         box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    }
-    
-    .search-box {
         margin-bottom: 30px;
     }
     
-    .search-input {
-        width: 100%;
-        padding: 15px 20px;
-        font-size: 1.1em;
-        border: 2px solid #e0e0e0;
+    .stadium-header {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
         border-radius: 10px;
-        transition: border-color 0.3s;
+        margin-bottom: 25px;
     }
     
-    .search-input:focus {
-        outline: none;
-        border-color: #667eea;
+    .stadium-icon {
+        font-size: 2.5em;
+    }
+    
+    .stadium-name {
+        font-size: 1.8em;
+        font-weight: bold;
+    }
+    
+    .stadium-count {
+        margin-left: auto;
+        font-size: 1.2em;
+        background: rgba(255,255,255,0.2);
+        padding: 8px 20px;
+        border-radius: 20px;
     }
     
     .players-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 20px;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 15px;
     }
     
     .player-card {
         background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-        padding: 25px;
-        border-radius: 15px;
-        border-left: 5px solid #667eea;
-        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+        border-left: 4px solid #667eea;
         transition: all 0.3s;
+        cursor: pointer;
     }
     
     .player-card:hover {
         transform: translateY(-5px);
         box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        border-left-color: #764ba2;
     }
     
-    .player-header {
-        text-align: center;
-        margin-bottom: 20px;
-        padding-bottom: 15px;
-        border-bottom: 2px solid #f0f0f0;
-    }
-    
-    .player-name {
-        font-size: 1.5em;
-        font-weight: bold;
-        color: #667eea;
+    .player-avatar {
+        font-size: 3em;
         margin-bottom: 10px;
     }
     
-    .player-matches {
-        color: #999;
-        font-size: 0.9em;
-    }
-    
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 15px;
-        margin-bottom: 20px;
-    }
-    
-    .stat-box {
-        background: white;
-        padding: 15px;
-        border-radius: 10px;
-        text-align: center;
-    }
-    
-    .stat-value {
-        font-size: 2em;
-        font-weight: bold;
-        color: #667eea;
-    }
-    
-    .stat-label {
-        font-size: 0.85em;
-        color: #666;
-        margin-top: 5px;
-    }
-    
-    .win-rate {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 15px;
-        border-radius: 10px;
-        text-align: center;
-    }
-    
-    .win-rate-value {
-        font-size: 2.5em;
-        font-weight: bold;
-    }
-    
-    .win-rate-label {
-        font-size: 0.9em;
-        opacity: 0.9;
-    }
-    
-    .goals-section {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
-        margin-top: 15px;
-    }
-    
-    .goal-box {
-        background: #f8f9fa;
-        padding: 12px;
-        border-radius: 8px;
-        text-align: center;
-    }
-    
-    .goal-number {
-        font-size: 1.5em;
+    .player-name {
+        font-size: 1.2em;
         font-weight: bold;
         color: #333;
+        margin-bottom: 5px;
     }
     
-    .goal-label {
+    .player-status {
+        display: inline-block;
+        padding: 4px 12px;
+        background: #27ae60;
+        color: white;
+        border-radius: 15px;
         font-size: 0.8em;
-        color: #666;
-        margin-top: 5px;
+        margin-top: 8px;
     }
     
-    .positive {
-        color: #27ae60;
-    }
-    
-    .negative {
-        color: #e74c3c;
-    }
-    
-    .empty-state {
+    .empty-stadium {
         text-align: center;
-        padding: 80px 20px;
-    }
-    
-    .empty-icon {
-        font-size: 5em;
-        opacity: 0.2;
-        margin-bottom: 20px;
+        padding: 40px;
+        color: #999;
     }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>👥 Estatísticas dos Jogadores</h1>
-    <p>Desempenho completo de todos os jogadores</p>
+    <h1>👥 Jogadores Ativos</h1>
+    <p>Todos os jogadores organizados por estádio</p>
 </div>
 
-<div class="players-section">
-    <div class="search-box">
-        <input type="text" class="search-input" id="searchPlayer" placeholder="🔍 Buscar jogador..." onkeyup="filterPlayers()">
-    </div>
-    
-    {% if players %}
-        <div class="players-grid" id="playersGrid">
+{% if players_by_stadium %}
+    {% for stadium, players in players_by_stadium.items() %}
+    <div class="stadium-section">
+        <div class="stadium-header">
+            <div class="stadium-icon">📍</div>
+            <div class="stadium-name">{{ stadium }}</div>
+            <div class="stadium-count">{{ players|length }} jogadores</div>
+        </div>
+        
+        <div class="players-grid">
             {% for player in players %}
-            <div class="player-card" data-name="{{ player.nickname|lower }}">
-                <div class="player-header">
-                    <div class="player-name">{{ player.nickname }}</div>
-                    <div class="player-matches">{{ player.total_matches }} partidas jogadas</div>
-                </div>
-                
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <div class="stat-value positive">{{ player.wins }}</div>
-                        <div class="stat-label">Vitórias</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-value negative">{{ player.losses }}</div>
-                        <div class="stat-label">Derrotas</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-value">{{ player.draws }}</div>
-                        <div class="stat-label">Empates</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-value">{{ player.total_matches }}</div>
-                        <div class="stat-label">Total</div>
-                    </div>
-                </div>
-                
-                <div class="win-rate">
-                    <div class="win-rate-value">{{ "%.1f"|format(player.win_rate) }}%</div>
-                    <div class="win-rate-label">Taxa de Vitória</div>
-                </div>
-                
-                <div class="goals-section">
-                    <div class="goal-box">
-                        <div class="goal-number positive">{{ player.goals_scored }}</div>
-                        <div class="goal-label">Gols Feitos</div>
-                    </div>
-                    <div class="goal-box">
-                        <div class="goal-number negative">{{ player.goals_conceded }}</div>
-                        <div class="goal-label">Gols Sofridos</div>
-                    </div>
-                    <div class="goal-box">
-                        <div class="goal-number {% if player.goal_difference >= 0 %}positive{% else %}negative{% endif %}">
-                            {{ "%+d"|format(player.goal_difference) }}
-                        </div>
-                        <div class="goal-label">Saldo</div>
-                    </div>
-                </div>
+            <div class="player-card">
+                <div class="player-avatar">🎮</div>
+                <div class="player-name">{{ player }}</div>
+                <div class="player-status">● ATIVO</div>
             </div>
             {% endfor %}
         </div>
-    {% else %}
-        <div class="empty-state">
-            <div class="empty-icon">👥</div>
-            <h2>Nenhum jogador encontrado</h2>
-            <p>As estatísticas aparecerão aqui conforme as partidas forem finalizadas</p>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="stadium-section">
+        <div class="empty-stadium">
+            <h2>Nenhum jogador ativo no momento</h2>
+            <p>Os jogadores aparecerão aqui conforme as partidas forem coletadas</p>
         </div>
-    {% endif %}
-</div>
-
-<script>
-    function filterPlayers() {
-        const searchValue = document.getElementById('searchPlayer').value.toLowerCase();
-        const cards = document.querySelectorAll('.player-card');
-        
-        cards.forEach(card => {
-            const playerName = card.getAttribute('data-name');
-            if (playerName.includes(searchValue)) {
-                card.style.display = 'block';
-            } else {
-                card.style.display = 'none';
-            }
-        });
-    }
-</script>
+    </div>
+{% endif %}
 {% endblock %}
