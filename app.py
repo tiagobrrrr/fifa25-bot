@@ -1,18 +1,15 @@
+# app.py - ARQUIVO COMPLETO CORRIGIDO
 """
-FIFA 25 Bot - Aplicação Flask Principal
-Monitoramento de partidas do ESportsBattle
+Bot FIFA25 - Aplicação Flask Principal
+Inclui prevenção de duplicatas e detecção automática de resultados
 """
 
-import os
-import logging
-from datetime import datetime, timedelta, timezone
-from io import BytesIO
-import pytz
 from flask import Flask, render_template, jsonify, request, send_file
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-import atexit
+from datetime import datetime, timedelta
+import os
+import logging
 
 # Configuração de logging
 logging.basicConfig(
@@ -27,8 +24,11 @@ app = Flask(__name__)
 # Configurações
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key-change-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///fifa25.db')
+
+# Corrige URL do PostgreSQL se necessário
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
@@ -36,1446 +36,724 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 }
 
 # Inicialização do banco de dados
-db = SQLAlchemy(app)
+from models import db, Match, get_or_create_match, get_match_statistics
+db.init_app(app)
 
-# Timezone de Brasília
-BRASILIA_TZ = pytz.timezone('America/Sao_Paulo')
-
-def to_brasilia_time(dt):
-    """Converte datetime UTC para horário de Brasília"""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(BRASILIA_TZ)
-
-# Definir modelos inline para evitar import circular
-class Match(db.Model):
-    """Modelo de Partida"""
-    __tablename__ = 'matches'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    match_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
-    status_id = db.Column(db.Integer, default=1)
-    date = db.Column(db.DateTime, index=True)
-    tournament_id = db.Column(db.Integer, index=True)
-    tournament_token = db.Column(db.String(200))
-    location_code = db.Column(db.String(100))
-    location_name = db.Column(db.String(200))
-    location_color = db.Column(db.String(20))
-    console_id = db.Column(db.Integer)
-    console_token = db.Column(db.String(100))
-    player1_id = db.Column(db.Integer, index=True)
-    player1_nickname = db.Column(db.String(100))
-    player1_photo = db.Column(db.String(500))
-    player1_team_id = db.Column(db.Integer)
-    player1_team_name = db.Column(db.String(200))
-    player1_team_logo = db.Column(db.String(500))
-    player2_id = db.Column(db.Integer, index=True)
-    player2_nickname = db.Column(db.String(100))
-    player2_photo = db.Column(db.String(500))
-    player2_team_id = db.Column(db.Integer)
-    player2_team_name = db.Column(db.String(200))
-    player2_team_logo = db.Column(db.String(500))
-    score1 = db.Column(db.Integer)
-    score2 = db.Column(db.Integer)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'match_id': self.match_id,
-            'status_id': self.status_id,
-            'date': self.date.isoformat() if self.date else None,
-            'player1_id': self.player1_id,
-            'player1_nickname': self.player1_nickname or 'TBD',
-            'player1_photo': self.player1_photo,
-            'player1_team_id': self.player1_team_id,
-            'player1_team_name': self.player1_team_name or 'N/A',
-            'player1_team_logo': self.player1_team_logo,
-            'player2_id': self.player2_id,
-            'player2_nickname': self.player2_nickname or 'TBD',
-            'player2_photo': self.player2_photo,
-            'player2_team_id': self.player2_team_id,
-            'player2_team_name': self.player2_team_name or 'N/A',
-            'player2_team_logo': self.player2_team_logo,
-            'score1': self.score1,
-            'score2': self.score2,
-            'location_code': self.location_code,
-            'location_name': self.location_name or 'N/A',
-            'location_color': self.location_color,
-            'console_id': self.console_id,
-            'console_token': self.console_token,
-            'tournament_id': self.tournament_id,
-            'tournament_token': self.tournament_token or 'N/A',
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
-class Player(db.Model):
-    """Modelo de Jogador"""
-    __tablename__ = 'players'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    player_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
-    nickname = db.Column(db.String(100), nullable=False)
-    photo = db.Column(db.String(500))
-    total_matches = db.Column(db.Integer, default=0)
-    wins = db.Column(db.Integer, default=0)
-    losses = db.Column(db.Integer, default=0)
-    draws = db.Column(db.Integer, default=0)
-    goals_scored = db.Column(db.Integer, default=0)
-    goals_conceded = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-
-class Tournament(db.Model):
-    """Modelo de Torneio"""
-    __tablename__ = 'tournaments'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    tournament_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
-    status_id = db.Column(db.Integer, default=1)
-    token = db.Column(db.String(200))
-    token_international = db.Column(db.String(200))
-    marker = db.Column(db.String(10))
-    total_matches = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-
-class Analysis(db.Model):
-    """Modelo de Análise Diária"""
-    __tablename__ = 'analyses'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.Date, nullable=False, index=True)
-    total_matches = db.Column(db.Integer, default=0)
-    live_matches = db.Column(db.Integer, default=0)
-    finished_matches = db.Column(db.Integer, default=0)
-    canceled_matches = db.Column(db.Integer, default=0)
-    unique_players = db.Column(db.Integer, default=0)
-    top_teams = db.Column(db.Text)
-    top_locations = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-
-# Importar serviços
+# Importações dos módulos
 from web_scraper import FIFA25Scraper
-from data_analyzer import DataAnalyzer
+from excel_exporter import ExcelExporter
+from statistics_calculator import StatisticsCalculator
 
-try:
-    from email_service import EmailService
-    email_enabled = True
-except:
-    email_enabled = False
-    logger.warning("⚠️ Email service não disponível")
-
-try:
-    from report_generator import ReportGenerator
-    report_enabled = True
-except:
-    report_enabled = False
-    logger.warning("⚠️ Report generator não disponível")
-
-try:
-    from telegram_service import TelegramService
-    telegram_enabled = True
-except:
-    telegram_enabled = False
-    logger.warning("⚠️ Telegram service não disponível")
-
-# Variáveis globais
+# Inicializar componentes
 scraper = FIFA25Scraper()
-analyzer = DataAnalyzer()
-email_service = EmailService() if email_enabled else None
-report_generator = ReportGenerator() if report_enabled else None
-telegram = TelegramService() if telegram_enabled else None
+excel_exporter = ExcelExporter()
+stats_calculator = StatisticsCalculator()
 
-# Configurações do scheduler
-SCAN_INTERVAL = int(os.environ.get('SCAN_INTERVAL', 30))
+# Configurações
+SCAN_INTERVAL = int(os.environ.get('SCAN_INTERVAL', 30))  # segundos
 RUN_SCRAPER = os.environ.get('RUN_SCRAPER', 'true').lower() == 'true'
 
-# Estatísticas globais
-stats = {
-    'last_scan': None,
-    'total_scans': 0,
-    'total_matches': 0,
-    'errors': 0,
-    'status': 'Iniciando...',
-    'success_rate': 100.0,
-    'uptime': 0,
-    'matches_per_hour': 0,
-    'live_matches': 0,
-    'upcoming_matches': 0,
-    'finished_matches': 0,
-    'unique_players': 0,
-    'active_tournaments': 0,
-    'avg_goals_per_match': 0,
-    'most_active_player': 'N/A',
-    'most_used_team': 'N/A',
-    'busiest_location': 'N/A'
-}
 
-# Tempo de início do bot
-bot_start_time = datetime.now()
+# ============================================================
+# FUNÇÕES DE SCRAPING COM PREVENÇÃO DE DUPLICATAS
+# ============================================================
 
-
-def init_db():
-    """Inicializa o banco de dados"""
-    with app.app_context():
-        try:
-            db.create_all()
-            logger.info("✅ Banco de dados inicializado")
-        except Exception as e:
-            logger.error(f"❌ Erro ao inicializar banco: {e}")
-
-
-def run_scraper():
-    """Executa o scraper de forma assíncrona"""
-    if not RUN_SCRAPER:
-        logger.info("⏸️ Scraper desabilitado (RUN_SCRAPER=false)")
-        return
-    
-    with app.app_context():
-        try:
-            stats['status'] = 'Executando scraper...'
-            logger.info("🔄 Iniciando varredura...")
-            
-            # 1. Buscar partidas próximas (endpoint principal)
-            nearest_matches = scraper.get_nearest_matches()
-            logger.info(f"📊 Encontradas {len(nearest_matches)} partidas próximas")
-            
-            # 2. Buscar partidas em streaming
-            streaming_matches = scraper.get_streaming_matches()
-            logger.info(f"📺 Encontradas {len(streaming_matches)} partidas em streaming")
-            
-            # 3. Processar e salvar no banco
-            total_saved = 0
-            
-            # Processar nearest matches
-            for match_data in nearest_matches:
-                try:
-                    match = save_match(match_data)
-                    if match:
-                        total_saved += 1
-                except Exception as e:
-                    logger.error(f"Erro ao salvar partida {match_data.get('id')}: {e}")
-            
-            # Processar streaming matches
-            for match_data in streaming_matches:
-                try:
-                    match = save_match(match_data)
-                    if match:
-                        total_saved += 1
-                except Exception as e:
-                    logger.error(f"Erro ao salvar partida streaming {match_data.get('id')}: {e}")
-            
-            # Atualizar estatísticas
-            stats['last_scan'] = datetime.now()
-            stats['total_scans'] += 1
-            stats['total_matches'] = Match.query.count()
-            stats['status'] = 'Online'
-            
-            # Calcular taxa de sucesso
-            total_attempts = stats['total_scans']
-            failures = stats['errors']
-            if total_attempts > 0:
-                stats['success_rate'] = round(((total_attempts - failures) / total_attempts) * 100, 1)
-            else:
-                stats['success_rate'] = 100.0
-            
-            # Calcular uptime (em horas)
-            uptime_delta = datetime.now() - bot_start_time
-            stats['uptime'] = round(uptime_delta.total_seconds() / 3600, 1)
-            
-            # Partidas por hora
-            if stats['uptime'] > 0:
-                stats['matches_per_hour'] = round(stats['total_matches'] / stats['uptime'], 1)
-            
-            # Estatísticas adicionais
-            stats['live_matches'] = Match.query.filter_by(status_id=2).count()
-            stats['upcoming_matches'] = Match.query.filter_by(status_id=1).count()
-            stats['finished_matches'] = Match.query.filter_by(status_id=3).count()
-            
-            # Jogadores únicos
-            unique_p1 = db.session.query(Match.player1_id).distinct().count()
-            unique_p2 = db.session.query(Match.player2_id).distinct().count()
-            stats['unique_players'] = unique_p1 + unique_p2
-            
-            # Torneios ativos
-            stats['active_tournaments'] = db.session.query(Match.tournament_id).distinct().count()
-            
-            # Média de gols
-            finished = Match.query.filter_by(status_id=3).filter(
-                Match.score1.isnot(None),
-                Match.score2.isnot(None)
-            ).all()
-            
-            if finished:
-                total_goals = sum([(m.score1 or 0) + (m.score2 or 0) for m in finished])
-                stats['avg_goals_per_match'] = round(total_goals / len(finished), 2)
-            
-            # Jogador mais ativo
-            top_player = db.session.query(
-                Match.player1_nickname,
-                db.func.count(Match.id).label('count')
-            ).filter(
-                Match.player1_nickname.isnot(None)
-            ).group_by(
-                Match.player1_nickname
-            ).order_by(
-                db.desc('count')
-            ).first()
-            
-            if top_player:
-                stats['most_active_player'] = top_player[0]
-            
-            # Time mais usado
-            top_team = db.session.query(
-                Match.player1_team_name,
-                db.func.count(Match.id).label('count')
-            ).filter(
-                Match.player1_team_name.isnot(None)
-            ).group_by(
-                Match.player1_team_name
-            ).order_by(
-                db.desc('count')
-            ).first()
-            
-            if top_team:
-                stats['most_used_team'] = top_team[0]
-            
-            # Location mais ativa
-            top_location = db.session.query(
-                Match.location_name,
-                db.func.count(Match.id).label('count')
-            ).filter(
-                Match.location_name.isnot(None)
-            ).group_by(
-                Match.location_name
-            ).order_by(
-                db.desc('count')
-            ).first()
-            
-            if top_location:
-                stats['busiest_location'] = top_location[0]
-            
-            logger.info(f"✅ Varredura completa: {total_saved} partidas salvas")
-            
-            # Enviar notificações se habilitado
-            if telegram and total_saved > 0:
-                try:
-                    telegram.send_notification(f"🎮 {total_saved} novas partidas detectadas!")
-                except:
-                    pass
-            
-        except Exception as e:
-            stats['errors'] += 1
-            stats['status'] = f'Erro: {str(e)[:50]}'
-            logger.error(f"❌ Erro no scraper: {e}")
-            
-            if telegram:
-                try:
-                    telegram.send_error(f"Erro no scraper: {e}")
-                except:
-                    pass
-
-
-def send_weekly_report():
-    """Envia relatório semanal por email"""
-    if not email_enabled or not report_enabled:
-        logger.warning("⚠️ Email ou Report Generator desabilitado")
-        return
-    
-    with app.app_context():
-        try:
-            logger.info("📧 Gerando relatório semanal...")
-            
-            # Buscar partidas dos últimos 7 dias
-            seven_days_ago = datetime.now() - timedelta(days=7)
-            matches = Match.query.filter(
-                Match.date >= seven_days_ago
-            ).all()
-            
-            if not matches:
-                logger.warning("⚠️ Nenhuma partida nos últimos 7 dias")
-                return
-            
-            # Converter para lista de dicionários
-            matches_data = [match.to_dict() for match in matches]
-            
-            # Gerar planilha Excel
-            excel_path = report_generator.generate_weekly_report(matches_data)
-            
-            if not excel_path:
-                logger.error("❌ Erro ao gerar planilha")
-                return
-            
-            # Preparar dados do email
-            total_matches = len(matches)
-            finished = len([m for m in matches if m.status_id == 3])
-            
-            # Jogadores únicos
-            players = set()
-            for match in matches:
-                if match.player1_nickname:
-                    players.add(match.player1_nickname)
-                if match.player2_nickname:
-                    players.add(match.player2_nickname)
-            
-            report_data = {
-                'total_matches': total_matches,
-                'finished_matches': finished,
-                'unique_players': len(players)
-            }
-            
-            # Enviar email
-            recipient_email = os.environ.get('RECIPIENT_EMAIL', os.environ.get('EMAIL_USER'))
-            
-            success = email_service.send_daily_report(
-                to_address=recipient_email,
-                report_data=report_data,
-                attachment_path=excel_path
-            )
-            
-            if success:
-                logger.info(f"✅ Relatório semanal enviado para {recipient_email}")
-            else:
-                logger.error("❌ Falha ao enviar relatório semanal")
-            
-            # Limpar relatórios antigos
-            report_generator.cleanup_old_reports(days=14)
-            
-        except Exception as e:
-            logger.error(f"❌ Erro ao enviar relatório semanal: {e}")
-            
-            if email_service:
-                try:
-                    recipient_email = os.environ.get('RECIPIENT_EMAIL', os.environ.get('EMAIL_USER'))
-                    email_service.send_error_notification(
-                        to_address=recipient_email,
-                        error_message=f"Erro ao gerar relatório semanal: {e}"
-                    )
-                except:
-                    pass
-
-
-def save_match(match_data):
-    """Salva ou atualiza uma partida no banco de dados"""
+def scrape_matches():
+    """
+    Função principal de scraping com verificação de duplicatas
+    """
     try:
-        match_id = match_data.get('id')
-        if not match_id:
-            return None
+        logger.info("🔄 Iniciando varredura...")
         
-        # Verificar se já existe
-        match = Match.query.filter_by(match_id=match_id).first()
+        # Coleta partidas próximas
+        upcoming_matches = scraper.get_upcoming_matches()
+        logger.info(f"📊 Encontradas {len(upcoming_matches)} partidas próximas")
         
-        if not match:
-            match = Match()
-            match.match_id = match_id
+        # Processa partidas próximas (evitando duplicatas)
+        new_upcoming = process_matches(upcoming_matches, 'scheduled')
         
-        # Atualizar dados
-        match.status_id = match_data.get('status_id', 1)
-        match.date = datetime.fromisoformat(match_data.get('date', '').replace('Z', '+00:00')) if match_data.get('date') else None
-        match.tournament_id = match_data.get('tournament_id')
+        # Coleta partidas ao vivo
+        live_matches = scraper.get_live_matches()
+        logger.info(f"📺 Encontradas {len(live_matches)} partidas em streaming")
         
-        # Location
-        location = match_data.get('location', {})
-        match.location_code = location.get('code')
-        match.location_name = location.get('token_international', location.get('token'))
-        match.location_color = location.get('color')
+        # Processa partidas ao vivo (evitando duplicatas)
+        new_live = process_matches(live_matches, 'live')
         
-        # Console
-        console = match_data.get('console', {})
-        match.console_id = console.get('id')
-        match.console_token = console.get('token_international', console.get('token'))
-        
-        # Participant 1
-        p1 = match_data.get('participant1', {})
-        match.player1_id = p1.get('id')
-        match.player1_nickname = p1.get('nickname')
-        match.player1_photo = p1.get('photo')
-        
-        team1 = p1.get('team', {})
-        match.player1_team_id = team1.get('id')
-        match.player1_team_name = team1.get('token_international', team1.get('token'))
-        match.player1_team_logo = team1.get('logo')
-        
-        # Participant 2
-        p2 = match_data.get('participant2', {})
-        match.player2_id = p2.get('id')
-        match.player2_nickname = p2.get('nickname')
-        match.player2_photo = p2.get('photo')
-        
-        team2 = p2.get('team', {})
-        match.player2_team_id = team2.get('id')
-        match.player2_team_name = team2.get('token_international', team2.get('token'))
-        match.player2_team_logo = team2.get('logo')
-        
-        # Score
-        match.score1 = match_data.get('score1')
-        match.score2 = match_data.get('score2')
-        
-        # Tournament info
-        tournament = match_data.get('tournament', {})
-        match.tournament_token = tournament.get('token_international', tournament.get('token'))
-        
-        match.updated_at = datetime.now()
-        
-        db.session.merge(match)
-        db.session.commit()
-        
-        return match
+        total_new = new_upcoming + new_live
+        logger.info(f"✅ Varredura completa: {total_new} partidas NOVAS salvas")
         
     except Exception as e:
+        logger.error(f"❌ Erro na varredura: {e}")
+
+
+def process_matches(matches, default_status='scheduled'):
+    """
+    Processa lista de partidas evitando duplicatas
+    
+    Args:
+        matches: lista de dicts com dados das partidas
+        default_status: status padrão se não especificado
+        
+    Returns:
+        int: número de partidas novas adicionadas
+    """
+    new_count = 0
+    updated_count = 0
+    
+    for match_data in matches:
+        try:
+            match_id = match_data.get('match_id')
+            
+            if not match_id:
+                logger.warning("⚠️ Partida sem match_id, ignorando")
+                continue
+            
+            # Verifica se partida já existe no banco
+            existing_match = Match.query.filter_by(match_id=match_id).first()
+            
+            if existing_match:
+                # Partida já existe - apenas atualiza se necessário
+                updated = update_existing_match(existing_match, match_data)
+                if updated:
+                    updated_count += 1
+            else:
+                # Partida nova - cria no banco
+                create_new_match(match_data, default_status)
+                new_count += 1
+                logger.info(f"✨ Nova partida adicionada: {match_id}")
+        
+        except Exception as e:
+            logger.error(f"Erro ao processar partida: {e}")
+            continue
+    
+    if updated_count > 0:
+        logger.info(f"🔄 {updated_count} partidas existentes atualizadas")
+    
+    return new_count
+
+
+def update_existing_match(match, new_data):
+    """
+    Atualiza partida existente apenas se houver mudanças relevantes
+    
+    Args:
+        match: objeto Match do banco
+        new_data: dict com novos dados
+        
+    Returns:
+        bool: True se houve atualização
+    """
+    updated = False
+    
+    try:
+        # Atualiza status se mudou
+        new_status = new_data.get('status')
+        if new_status and new_status != match.status:
+            # Não regredir de finished para live/scheduled
+            if match.status != 'finished':
+                match.status = new_status
+                updated = True
+                logger.info(f"📝 Status atualizado: {match.match_id} → {new_status}")
+        
+        # Atualiza placar durante partida ao vivo
+        if match.status == 'live':
+            home_score = new_data.get('current_score_home')
+            away_score = new_data.get('current_score_away')
+            
+            if home_score is not None and away_score is not None:
+                if (match.current_score_home != home_score or 
+                    match.current_score_away != away_score):
+                    match.current_score_home = home_score
+                    match.current_score_away = away_score
+                    updated = True
+        
+        # Atualiza stream_url se mudou
+        new_stream = new_data.get('stream_url')
+        if new_stream and new_stream != match.stream_url:
+            match.stream_url = new_stream
+            updated = True
+        
+        # Atualiza campos vazios
+        if not match.home_player and new_data.get('home_player'):
+            match.home_player = new_data['home_player']
+            updated = True
+        
+        if not match.away_player and new_data.get('away_player'):
+            match.away_player = new_data['away_player']
+            updated = True
+        
+        if not match.location and new_data.get('location'):
+            match.location = new_data['location']
+            updated = True
+        
+        if not match.tournament and new_data.get('tournament'):
+            match.tournament = new_data['tournament']
+            updated = True
+        
+        if updated:
+            match.updated_at = datetime.utcnow()
+            db.session.commit()
+    
+    except Exception as e:
+        logger.error(f"Erro ao atualizar partida {match.match_id}: {e}")
         db.session.rollback()
-        logger.error(f"Erro ao salvar partida: {e}")
-        return None
+    
+    return updated
 
 
-# ==================== ROTAS ====================
+def create_new_match(match_data, default_status='scheduled'):
+    """
+    Cria nova partida no banco de dados
+    
+    Args:
+        match_data: dict com dados da partida
+        default_status: status padrão
+    """
+    try:
+        match = Match(
+            match_id=match_data.get('match_id'),
+            home_player=match_data.get('home_player'),
+            away_player=match_data.get('away_player'),
+            home_team=match_data.get('home_team'),
+            away_team=match_data.get('away_team'),
+            tournament=match_data.get('tournament'),
+            location=match_data.get('location'),
+            match_date=match_data.get('match_date'),
+            status=match_data.get('status', default_status),
+            stream_url=match_data.get('stream_url'),
+            url=match_data.get('url'),
+            current_score_home=match_data.get('current_score_home', 0),
+            current_score_away=match_data.get('current_score_away', 0)
+        )
+        
+        db.session.add(match)
+        db.session.commit()
+        
+    except Exception as e:
+        logger.error(f"Erro ao criar partida: {e}")
+        db.session.rollback()
+        raise
+
+
+# ============================================================
+# VERIFICAÇÃO DE PARTIDAS FINALIZADAS
+# ============================================================
+
+def check_finished_matches():
+    """
+    Verifica partidas ao vivo que finalizaram
+    """
+    try:
+        # Busca partidas com status 'live'
+        live_matches = Match.query.filter_by(status='live').all()
+        
+        if not live_matches:
+            logger.info("ℹ️ Nenhuma partida ao vivo para verificar")
+            return
+        
+        logger.info(f"🔍 Verificando {len(live_matches)} partidas ao vivo...")
+        
+        finished_count = 0
+        
+        for match in live_matches:
+            try:
+                # Verifica status atual da partida
+                result = scraper.check_match_status_and_score(match.url)
+                
+                if not result:
+                    continue
+                
+                # Se partida finalizou
+                if result['status'] == 'finished':
+                    logger.info(f"🏁 Partida {match.match_id} FINALIZADA: "
+                              f"{result['home_score']} x {result['away_score']}")
+                    
+                    # Atualiza dados no banco
+                    match.status = 'finished'
+                    match.final_score_home = result['home_score']
+                    match.final_score_away = result['away_score']
+                    match.winner = result['winner']
+                    match.finished_at = result['finished_at']
+                    
+                    db.session.commit()
+                    
+                    # Processa resultado
+                    process_finished_match(match)
+                    
+                    finished_count += 1
+                
+                # Se ainda está ao vivo, atualiza placar atual
+                elif result['status'] == 'live':
+                    if (match.current_score_home != result['home_score'] or
+                        match.current_score_away != result['away_score']):
+                        match.current_score_home = result['home_score']
+                        match.current_score_away = result['away_score']
+                        db.session.commit()
+            
+            except Exception as e:
+                logger.error(f"Erro ao verificar match {match.match_id}: {e}")
+                continue
+        
+        if finished_count > 0:
+            logger.info(f"✅ {finished_count} partidas finalizadas nesta verificação")
+    
+    except Exception as e:
+        logger.error(f"Erro no check_finished_matches: {e}")
+
+
+def process_finished_match(match):
+    """
+    Processa uma partida que acabou de finalizar
+    """
+    try:
+        logger.info(f"📊 Processando partida finalizada {match.match_id}...")
+        
+        # Exporta para Excel
+        success = excel_exporter.export_match(match)
+        if success:
+            logger.info(f"✅ Partida exportada para Excel")
+        
+        # Atualiza cache de estatísticas
+        stats_calculator.refresh_cache()
+        logger.info(f"✅ Estatísticas atualizadas")
+        
+        # Envia notificação (se configurado)
+        try:
+            notify_match_finished(match)
+        except Exception as e:
+            logger.warning(f"⚠️ Erro ao enviar notificação: {e}")
+        
+        logger.info(f"✅ Processamento da partida {match.match_id} concluído")
+        
+    except Exception as e:
+        logger.error(f"Erro ao processar partida {match.match_id}: {e}")
+
+
+def notify_match_finished(match):
+    """
+    Envia notificação quando partida finaliza
+    """
+    try:
+        from telegram_service import send_message
+        
+        message = f"""
+🏁 **PARTIDA FINALIZADA**
+
+🎮 **Match #{match.match_id}**
+
+⚽ **{match.home_player}** {match.final_score_home} x {match.final_score_away} **{match.away_player}**
+
+🏆 **Vencedor:** {match.winner}
+
+📍 **Local:** {match.location}
+🎯 **Torneio:** {match.tournament}
+"""
+        
+        send_message(message)
+        logger.info("📱 Notificação Telegram enviada")
+        
+    except ImportError:
+        # Telegram não configurado
+        pass
+    except Exception as e:
+        logger.error(f"Erro ao enviar notificação: {e}")
+
+
+# ============================================================
+# LIMPEZA DE PARTIDAS ANTIGAS
+# ============================================================
+
+def cleanup_old_matches():
+    """
+    Remove partidas muito antigas do banco (opcional)
+    Mantém apenas partidas dos últimos 30 dias
+    """
+    try:
+        cutoff_date = datetime.utcnow() - timedelta(days=30)
+        
+        old_matches = Match.query.filter(
+            Match.status == 'scheduled',
+            Match.created_at < cutoff_date
+        ).all()
+        
+        if old_matches:
+            for match in old_matches:
+                db.session.delete(match)
+            
+            db.session.commit()
+            logger.info(f"🗑️ {len(old_matches)} partidas antigas removidas")
+    
+    except Exception as e:
+        logger.error(f"Erro ao limpar partidas antigas: {e}")
+        db.session.rollback()
+
+
+# ============================================================
+# SCHEDULER
+# ============================================================
+
+scheduler = BackgroundScheduler()
+
+if RUN_SCRAPER:
+    # Job 1: Scraper principal (a cada 30 segundos)
+    scheduler.add_job(
+        func=scrape_matches,
+        trigger="interval",
+        seconds=SCAN_INTERVAL,
+        id="scraper_fifa25",
+        name="Scraper FIFA25 ESportsBattle",
+        replace_existing=True
+    )
+    
+    # Job 2: Verificar partidas finalizadas (a cada 2 minutos)
+    scheduler.add_job(
+        func=check_finished_matches,
+        trigger="interval",
+        minutes=2,
+        id="check_finished_matches",
+        name="Verificar Partidas Finalizadas",
+        replace_existing=True
+    )
+    
+    # Job 3: Exportar para Excel (a cada 5 minutos)
+    scheduler.add_job(
+        func=lambda: excel_exporter.export_all_finished_matches(),
+        trigger="interval",
+        minutes=5,
+        id="export_to_excel",
+        name="Exportar Partidas para Excel",
+        replace_existing=True
+    )
+    
+    # Job 4: Atualizar estatísticas (a cada 5 minutos)
+    scheduler.add_job(
+        func=lambda: stats_calculator.refresh_cache(),
+        trigger="interval",
+        minutes=5,
+        id="update_statistics",
+        name="Atualizar Cache de Estatísticas",
+        replace_existing=True
+    )
+    
+    # Job 5: Limpeza de partidas antigas (1x por dia às 3h)
+    scheduler.add_job(
+        func=cleanup_old_matches,
+        trigger="cron",
+        hour=3,
+        minute=0,
+        id="cleanup_old_matches",
+        name="Limpar Partidas Antigas",
+        replace_existing=True
+    )
+
+scheduler.start()
+
+
+# ============================================================
+# ROTAS - PÁGINAS
+# ============================================================
 
 @app.route('/')
 def index():
-    """Página inicial - Dashboard"""
+    """Dashboard principal"""
     try:
-        # Data atual
-        today = datetime.now().date()
+        stats = get_match_statistics()
         
-        # Buscar estatísticas gerais do banco
-        total_matches = Match.query.count()
-        live_matches_count = Match.query.filter_by(status_id=2).count()
-        upcoming_matches_count = Match.query.filter_by(status_id=1).count()
-        finished_matches_count = Match.query.filter_by(status_id=3).count()
+        # Partidas ao vivo (limitado a 5 para o dashboard)
+        live_matches = Match.query.filter_by(status='live')\
+                                  .order_by(Match.created_at.desc())\
+                                  .limit(5).all()
         
-        # Partidas do dia
-        today_matches = Match.query.filter(
-            db.func.date(Match.date) == today
-        ).count()
+        # Próximas partidas (limitado a 5)
+        upcoming_matches = Match.query.filter_by(status='scheduled')\
+                                      .order_by(Match.match_date)\
+                                      .limit(5).all()
         
-        # Buscar partidas ao vivo AGORA
-        live_matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).limit(20).all()
-        
-        # Buscar próximas partidas agendadas
-        upcoming_matches_list = Match.query.filter_by(status_id=1).order_by(Match.date.asc()).limit(20).all()
-        
-        # Buscar partidas finalizadas recentes
-        finished_matches_list = Match.query.filter_by(status_id=3).order_by(Match.date.desc()).limit(10).all()
-        
-        # Estado da aplicação
-        app_state = {
-            'scheduler_running': RUN_SCRAPER,
-            'email_enabled': email_enabled,
-            'report_enabled': report_enabled,
-            'database_connected': True,
-            'last_error': None
-        }
-        
-        # Preparar dados do summary
-        summary = {
-            'total_matches': total_matches,
-            'today_matches': today_matches,
-            'live_matches_count': live_matches_count,
-            'upcoming_matches_count': upcoming_matches_count,
-            'finished_matches_count': finished_matches_count,
-            'nearest_matches_count': upcoming_matches_count,
-            'recent_matches_count': finished_matches_count,
-            'live_matches': [m.to_dict() for m in live_matches_list],
-            'upcoming_matches': [m.to_dict() for m in upcoming_matches_list],
-            'finished_matches': [m.to_dict() for m in finished_matches_list],
-            'has_live_matches': live_matches_count > 0,
-            'has_upcoming_matches': upcoming_matches_count > 0,
-            'has_recent_matches': finished_matches_count > 0
-        }
-        
-        # Garantir que stats tem TODOS os campos
-        stats_copy = dict(stats)
-        
-        # Adicionar campos que podem estar faltando
-        default_stats = {
-            'last_scan': None,
-            'total_scans': 0,
-            'total_matches': 0,
-            'errors': 0,
-            'status': 'Iniciando...',
-            'success_rate': 100.0,
-            'uptime': 0,
-            'matches_per_hour': 0,
-            'live_matches': 0,
-            'upcoming_matches': 0,
-            'finished_matches': 0,
-            'unique_players': 0,
-            'active_tournaments': 0,
-            'avg_goals_per_match': 0,
-            'most_active_player': 'N/A',
-            'most_used_team': 'N/A',
-            'busiest_location': 'N/A',
-            'scraper_enabled': RUN_SCRAPER,
-            'scan_interval': SCAN_INTERVAL
-        }
-        
-        # Mesclar defaults com valores atuais
-        for key, default_value in default_stats.items():
-            if key not in stats_copy or stats_copy[key] is None:
-                stats_copy[key] = default_value
-        
-        # Formatar last_scan para string se existir
-        if stats_copy.get('last_scan'):
-            try:
-                stats_copy['last_scan_formatted'] = stats_copy['last_scan'].strftime('%Y-%m-%d %H:%M:%S')
-            except:
-                stats_copy['last_scan_formatted'] = 'N/A'
-        else:
-            stats_copy['last_scan_formatted'] = 'Nunca'
-        
-        return render_template('dashboard.html', 
-                             stats=stats_copy, 
-                             summary=summary,
-                             app_state=app_state)
-        
-    except Exception as e:
-        logger.error(f"❌ Erro ao carregar dashboard: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        
-        # Retornar página HTML simples em caso de erro
-        error_message = str(e)
-        
-        try:
-            total = Match.query.count()
-            live = Match.query.filter_by(status_id=2).count()
-            upcoming = Match.query.filter_by(status_id=1).count()
-        except:
-            total = 0
-            live = 0
-            upcoming = 0
-        
-        return f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>FIFA 25 Bot - Dashboard</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>
-                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-                body {{
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    padding: 20px;
-                }}
-                .container {{
-                    max-width: 1200px;
-                    margin: 0 auto;
-                }}
-                .header {{
-                    background: white;
-                    padding: 30px;
-                    border-radius: 15px;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-                    margin-bottom: 30px;
-                    text-align: center;
-                }}
-                h1 {{ color: #667eea; font-size: 2.5em; margin-bottom: 10px; }}
-                .status {{ color: #27ae60; font-size: 1.2em; }}
-                .stats-grid {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                    gap: 20px;
-                    margin-top: 30px;
-                }}
-                .stat-card {{
-                    background: white;
-                    padding: 25px;
-                    border-radius: 15px;
-                    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-                    text-align: center;
-                }}
-                .stat-number {{
-                    font-size: 3em;
-                    font-weight: bold;
-                    color: #667eea;
-                    margin: 10px 0;
-                }}
-                .stat-label {{
-                    color: #666;
-                    font-size: 1.1em;
-                }}
-                .error-box {{
-                    background: #fff3cd;
-                    border-left: 4px solid #ffc107;
-                    padding: 20px;
-                    border-radius: 10px;
-                    margin-top: 20px;
-                }}
-                .btn {{
-                    display: inline-block;
-                    padding: 15px 30px;
-                    background: #667eea;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 8px;
-                    margin: 10px;
-                    transition: all 0.3s;
-                }}
-                .btn:hover {{
-                    background: #764ba2;
-                    transform: translateY(-2px);
-                    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🎮 FIFA 25 Bot</h1>
-                    <p class="status">✅ Sistema Online e Coletando Dados</p>
-                </div>
-                
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Total de Partidas</div>
-                        <div class="stat-number">{total}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">🔴 Ao Vivo</div>
-                        <div class="stat-number">{live}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">📅 Agendadas</div>
-                        <div class="stat-number">{upcoming}</div>
-                    </div>
-                </div>
-                
-                <div class="error-box">
-                    <h3>⚠️ Dashboard em Manutenção</h3>
-                    <p>O template do dashboard precisa ser atualizado. Enquanto isso, use as APIs abaixo:</p>
-                </div>
-                
-                <div style="text-align: center; margin-top: 30px;">
-                    <a href="/api/stats" class="btn">📊 Ver Estatísticas (JSON)</a>
-                    <a href="/api/matches/live" class="btn">🔴 Partidas Ao Vivo</a>
-                    <a href="/api/matches/upcoming" class="btn">📅 Próximas Partidas</a>
-                </div>
-            </div>
-        </body>
-        </html>
-        """, 500
-
-
-    
-    report_data = {
-        'today_matches': today_matches,
-        'live_matches': live_matches,
-        'finished_today': finished_today,
-        'total_matches': Match.query.count()
-    }
-    
-    return render_template('reports.html', report=report_data)
-
-
-# ==================== API ENDPOINTS ====================
-
-@app.route('/api/stats')
-def api_stats():
-    """Retorna estatísticas do bot"""
-    return jsonify({
-        'last_scan': stats['last_scan'].isoformat() if stats['last_scan'] else None,
-        'total_scans': stats['total_scans'],
-        'total_matches': stats['total_matches'],
-        'errors': stats['errors'],
-        'status': stats['status'],
-        'scraper_enabled': RUN_SCRAPER,
-        'scan_interval': SCAN_INTERVAL
-    })
-
-
-@app.route('/api/matches/live')
-def api_live_matches():
-    """Retorna partidas ao vivo"""
-    matches = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).limit(20).all()
-    return jsonify([m.to_dict() for m in matches])
-
-
-@app.route('/api/matches/upcoming')
-def api_upcoming_matches():
-    """Retorna próximas partidas"""
-    matches = Match.query.filter_by(status_id=1).order_by(Match.date.asc()).limit(20).all()
-    return jsonify([m.to_dict() for m in matches])
-
-
-@app.route('/api/matches/recent')
-def api_recent_matches():
-    """Retorna partidas recentes"""
-    matches = Match.query.order_by(Match.updated_at.desc()).limit(50).all()
-    return jsonify([m.to_dict() for m in matches])
-
-
-@app.route('/api/force-scan')
-def api_force_scan():
-    """Força uma varredura imediata"""
-    try:
-        run_scraper()
-        return jsonify({'success': True, 'message': 'Varredura iniciada'})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/send-report')
-def api_send_report():
-    """Força envio de relatório semanal (para testes)"""
-    try:
-        send_weekly_report()
-        return jsonify({'success': True, 'message': 'Relatório enviado'})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ==================== SCHEDULER ====================
-
-def setup_scheduler():
-    """Configura o scheduler para executar o scraper periodicamente"""
-    scheduler = BackgroundScheduler()
-    
-    # Job 1: Scraper (a cada X segundos)
-    scheduler.add_job(
-        func=run_scraper,
-        trigger=IntervalTrigger(seconds=SCAN_INTERVAL),
-        id='scraper_job',
-        name='Scraper FIFA25 ESportsBattle',
-        replace_existing=True
-    )
-    logger.info(f"✅ Scheduler configurado: scraper a cada {SCAN_INTERVAL}s")
-    
-    # Job 2: Relatório Semanal (toda segunda-feira às 09:00)
-    if email_enabled and report_enabled:
-        from apscheduler.triggers.cron import CronTrigger
-        
-        scheduler.add_job(
-            func=send_weekly_report,
-            trigger=CronTrigger(day_of_week='mon', hour=9, minute=0),
-            id='weekly_report_job',
-            name='Relatório Semanal FIFA25',
-            replace_existing=True
+        return render_template(
+            'dashboard.html',
+            stats=stats,
+            live_matches=live_matches,
+            upcoming_matches=upcoming_matches
         )
-        logger.info("✅ Scheduler configurado: relatório semanal toda segunda às 09:00")
-    else:
-        logger.warning("⚠️ Relatório semanal desabilitado (email ou report generator não disponível)")
     
-    scheduler.start()
-    
-    # Desligar o scheduler quando a aplicação fechar
-    atexit.register(lambda: scheduler.shutdown())
-    
-    return scheduler
-
-
-
-# ==================== NOVAS ROTAS - ABAS COMPLETAS ====================
-
-def calculate_player_stats(player_id):
-    """Calcula estatísticas de um jogador"""
-    matches = Match.query.filter(
-        db.or_(
-            Match.player1_id == player_id,
-            Match.player2_id == player_id
-        ),
-        Match.status_id == 3
-    ).all()
-    
-    if not matches:
-        return None
-    
-    stats = {
-        'player_id': player_id,
-        'nickname': '',
-        'total_matches': 0,
-        'wins': 0,
-        'losses': 0,
-        'draws': 0,
-        'goals_scored': 0,
-        'goals_conceded': 0,
-        'goal_difference': 0,
-        'win_rate': 0.0
-    }
-    
-    for match in matches:
-        is_player1 = match.player1_id == player_id
-        
-        if is_player1 and not stats['nickname']:
-            stats['nickname'] = match.player1_nickname or 'Unknown'
-        elif not is_player1 and not stats['nickname']:
-            stats['nickname'] = match.player2_nickname or 'Unknown'
-        
-        if match.score1 is not None and match.score2 is not None:
-            stats['total_matches'] += 1
-            
-            if is_player1:
-                stats['goals_scored'] += match.score1
-                stats['goals_conceded'] += match.score2
-                
-                if match.score1 > match.score2:
-                    stats['wins'] += 1
-                elif match.score1 < match.score2:
-                    stats['losses'] += 1
-                else:
-                    stats['draws'] += 1
-            else:
-                stats['goals_scored'] += match.score2
-                stats['goals_conceded'] += match.score1
-                
-                if match.score2 > match.score1:
-                    stats['wins'] += 1
-                elif match.score2 < match.score1:
-                    stats['losses'] += 1
-                else:
-                    stats['draws'] += 1
-    
-    stats['goal_difference'] = stats['goals_scored'] - stats['goals_conceded']
-    
-    if stats['total_matches'] > 0:
-        stats['win_rate'] = round((stats['wins'] / stats['total_matches']) * 100, 1)
-    
-    return stats
+    except Exception as e:
+        logger.error(f"Erro na página inicial: {e}")
+        return render_template('dashboard.html', stats={}, live_matches=[], upcoming_matches=[])
 
 
 @app.route('/matches')
-def live_matches():
+def matches():
     """Página de partidas ao vivo"""
-    matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).all()
-    
-    for match in matches_list:
-        if match.date:
-            match.date_brasilia = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
-    
-    return render_template('matches.html', matches=matches_list, total_matches=len(matches_list))
-
-
-@app.route('/players')
-def players_by_stadium():
-    """Aba Jogadores - Players ativos por estádio"""
     try:
-        # Buscar todos os jogadores únicos agrupados por estádio
-        players_by_stadium = {}
+        status_filter = request.args.get('status', 'live')
         
-        # Buscar todas as partidas
-        matches = Match.query.all()
+        query = Match.query.filter_by(status=status_filter)\
+                          .order_by(Match.created_at.desc())
         
-        for match in matches:
-            stadium = match.location_name or 'Estádio Desconhecido'
-            
-            if stadium not in players_by_stadium:
-                players_by_stadium[stadium] = set()
-            
-            if match.player1_nickname:
-                players_by_stadium[stadium].add(match.player1_nickname)
-            if match.player2_nickname:
-                players_by_stadium[stadium].add(match.player2_nickname)
+        matches_list = query.all()
         
-        # Converter sets para listas ordenadas
-        players_by_stadium = {
-            stadium: sorted(list(players)) 
-            for stadium, players in sorted(players_by_stadium.items())
-        }
-        
-        return render_template('players.html', players_by_stadium=players_by_stadium)
-    
-    except Exception as e:
-        logger.error(f"❌ Erro na rota /players: {e}")
-        return render_template('players.html', players_by_stadium={})
-
-
-@app.route('/reports')
-def reports_page():
-    """Página de relatórios"""
-    report_stats = {
-        'total_matches': Match.query.count(),
-        'finished_matches': Match.query.filter_by(status_id=3).count(),
-        'live_matches': Match.query.filter_by(status_id=2).count(),
-        'unique_players': 0
-    }
-    
-    player_ids = set()
-    all_matches = Match.query.all()
-    for match in all_matches:
-        if match.player1_id:
-            player_ids.add(match.player1_id)
-        if match.player2_id:
-            player_ids.add(match.player2_id)
-    
-    report_stats['unique_players'] = len(player_ids)
-    
-    return render_template('reports.html', stats=report_stats)
-
-
-@app.route('/history')
-def history_recent():
-    """Página de histórico - últimos 30 minutos"""
-    try:
-        page = request.args.get('page', 1, type=int)
-        per_page = 20
-        
-        # Calcular 30 minutos atrás
-        thirty_min_ago = datetime.now() - timedelta(minutes=30)
-        
-        # Query - apenas finalizadas dos últimos 30 minutos
-        query = Match.query.filter(
-            Match.status_id == 3,
-            Match.updated_at >= thirty_min_ago
+        return render_template(
+            'matches.html',
+            matches=matches_list,
+            status=status_filter
         )
-        
-        # Paginar
-        pagination_obj = query.order_by(Match.updated_at.desc()).paginate(
-            page=page,
-            per_page=per_page,
-            error_out=False
-        )
-        
-        matches_list = []
-        
-        # Converter para dicionários e formatar datas
-        for match in pagination_obj.items:
-            match_dict = {
-                'match_id': match.match_id,
-                'date': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
-                'status_id': match.status_id,
-                'player1_nickname': match.player1_nickname or 'TBD',
-                'player1_team_name': match.player1_team_name or 'N/A',
-                'player2_nickname': match.player2_nickname or 'TBD',
-                'player2_team_name': match.player2_team_name or 'N/A',
-                'score1': match.score1,
-                'score2': match.score2,
-                'location_name': match.location_name or 'N/A',
-                'tournament_token': match.tournament_token or 'N/A'
-            }
-            matches_list.append(match_dict)
-        
-        pagination = {
-            'page': page,
-            'pages': pagination_obj.pages,
-            'total': pagination_obj.total,
-            'per_page': per_page,
-            'has_prev': pagination_obj.has_prev,
-            'has_next': pagination_obj.has_next,
-            'prev_num': pagination_obj.prev_num,
-            'next_num': pagination_obj.next_num
-        }
-        
-        return render_template('history.html',
-                             matches=matches_list,
-                             pagination=pagination,
-                             total_matches=pagination_obj.total,
-                             date_from='',
-                             date_to='',
-                             player_filter='',
-                             team_filter='')
     
     except Exception as e:
-        logger.error(f"❌ Erro na rota /history: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        
-        # Retornar página vazia em caso de erro
-        return render_template('history.html',
-                             matches=[],
-                             pagination={'page': 1, 'pages': 1, 'total': 0, 'per_page': 20, 'has_prev': False, 'has_next': False, 'prev_num': None, 'next_num': None},
-                             total_matches=0,
-                             date_from='',
-                             date_to='',
-                             player_filter='',
-                             team_filter='',
-                             error=str(e))
-
-
-@app.route('/statistics')
-def statistics():
-    """Aba Estatísticas - Pontuação completa por estádio"""
-    try:
-        stats_by_stadium = {}
-        
-        # Buscar todas as partidas finalizadas
-        finished_matches = Match.query.filter_by(status_id=3).all()
-        
-        # Organizar por estádio
-        for match in finished_matches:
-            stadium = match.location_name or 'Estádio Desconhecido'
-            
-            if stadium not in stats_by_stadium:
-                stats_by_stadium[stadium] = {}
-            
-            # Processar Player 1
-            if match.player1_nickname:
-                p1_name = match.player1_nickname
-                
-                if p1_name not in stats_by_stadium[stadium]:
-                    stats_by_stadium[stadium][p1_name] = {
-                        'name': p1_name,
-                        'wins': 0,
-                        'losses': 0,
-                        'goals_scored': 0,
-                        'goals_conceded': 0,
-                        'goal_diff': 0,
-                        'championships': set()
-                    }
-                
-                if match.score1 is not None and match.score2 is not None:
-                    stats_by_stadium[stadium][p1_name]['goals_scored'] += match.score1
-                    stats_by_stadium[stadium][p1_name]['goals_conceded'] += match.score2
-                    
-                    if match.score1 > match.score2:
-                        stats_by_stadium[stadium][p1_name]['wins'] += 1
-                        if match.tournament_token:
-                            stats_by_stadium[stadium][p1_name]['championships'].add(match.tournament_token)
-                    elif match.score1 < match.score2:
-                        stats_by_stadium[stadium][p1_name]['losses'] += 1
-            
-            # Processar Player 2
-            if match.player2_nickname:
-                p2_name = match.player2_nickname
-                
-                if p2_name not in stats_by_stadium[stadium]:
-                    stats_by_stadium[stadium][p2_name] = {
-                        'name': p2_name,
-                        'wins': 0,
-                        'losses': 0,
-                        'goals_scored': 0,
-                        'goals_conceded': 0,
-                        'goal_diff': 0,
-                        'championships': set()
-                    }
-                
-                if match.score1 is not None and match.score2 is not None:
-                    stats_by_stadium[stadium][p2_name]['goals_scored'] += match.score2
-                    stats_by_stadium[stadium][p2_name]['goals_conceded'] += match.score1
-                    
-                    if match.score2 > match.score1:
-                        stats_by_stadium[stadium][p2_name]['wins'] += 1
-                        if match.tournament_token:
-                            stats_by_stadium[stadium][p2_name]['championships'].add(match.tournament_token)
-                    elif match.score2 < match.score1:
-                        stats_by_stadium[stadium][p2_name]['losses'] += 1
-        
-        # Calcular saldo de gols e converter championships para lista
-        for stadium in stats_by_stadium:
-            for player_name in stats_by_stadium[stadium]:
-                player = stats_by_stadium[stadium][player_name]
-                player['goal_diff'] = player['goals_scored'] - player['goals_conceded']
-                player['championships'] = sorted(list(player['championships']))
-        
-        # Converter para lista ordenada por vitórias
-        stats_by_stadium_sorted = {}
-        for stadium, players in sorted(stats_by_stadium.items()):
-            stats_by_stadium_sorted[stadium] = sorted(
-                players.values(),
-                key=lambda x: x['wins'],
-                reverse=True
-            )
-        
-        return render_template('statistics.html', stats_by_stadium=stats_by_stadium_sorted)
-    
-    except Exception as e:
-        logger.error(f"❌ Erro na rota /statistics: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return render_template('statistics.html', stats_by_stadium={})
+        logger.error(f"Erro na página de partidas: {e}")
+        return render_template('matches.html', matches=[], status='live')
 
 
 @app.route('/upcoming')
 def upcoming():
     """Página de partidas agendadas"""
-    page = request.args.get('page', 1, type=int)
-    per_page = 30
-    
-    query = Match.query.filter_by(status_id=1)
-    
-    pagination_obj = query.order_by(Match.date.asc()).paginate(page=page, per_page=per_page, error_out=False)
-    
-    matches_list = pagination_obj.items
-    
-    for match in matches_list:
-        if match.date:
-            match.date = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
-    
-    pagination = {
-        'page': page,
-        'pages': pagination_obj.pages,
-        'total': pagination_obj.total,
-        'per_page': per_page,
-        'has_prev': pagination_obj.has_prev,
-        'has_next': pagination_obj.has_next,
-        'prev_num': pagination_obj.prev_num,
-        'next_num': pagination_obj.next_num
-    }
-    
-    return render_template('upcoming.html', matches=matches_list, pagination=pagination, total_matches=pagination_obj.total)
-
-
-def generate_excel_report(matches, filename):
-    """Gera relatório Excel com formatação (verde/vermelho) separado por estádio"""
-    import pandas as pd
-    from openpyxl.styles import PatternFill
-    
-    # Agrupar partidas por estádio
-    matches_by_stadium = {}
-    for match in matches:
-        stadium = match.location_name or 'Estádio Desconhecido'
+    try:
+        upcoming_matches = Match.query.filter_by(status='scheduled')\
+                                      .order_by(Match.match_date)\
+                                      .all()
         
-        if stadium not in matches_by_stadium:
-            matches_by_stadium[stadium] = []
+        return render_template('upcoming.html', matches=upcoming_matches)
+    
+    except Exception as e:
+        logger.error(f"Erro na página de próximas: {e}")
+        return render_template('upcoming.html', matches=[])
+
+
+@app.route('/statistics')
+def statistics():
+    """Página de estatísticas dos jogadores"""
+    try:
+        # Obtém estatísticas por estádio (do cache)
+        stats_by_stadium = stats_calculator.get_statistics_by_stadium()
         
-        matches_by_stadium[stadium].append(match)
-    
-    output = BytesIO()
-    
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Criar uma aba para cada estádio
-        for stadium, stadium_matches in sorted(matches_by_stadium.items()):
-            data = []
-            
-            for match in stadium_matches:
-                data.append({
-                    'Data/Hora': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
-                    'Jogador 1': match.player1_nickname or 'N/A',
-                    'Time 1': match.player1_team_name or 'N/A',
-                    'Gols P1': match.score1 if match.score1 is not None else 0,
-                    'Gols P2': match.score2 if match.score2 is not None else 0,
-                    'Jogador 2': match.player2_nickname or 'N/A',
-                    'Time 2': match.player2_team_name or 'N/A',
-                    'Torneio': match.tournament_token or 'N/A',
-                    'Vencedor': ''
-                })
-                
-                # Determinar vencedor
-                if match.score1 is not None and match.score2 is not None:
-                    if match.score1 > match.score2:
-                        data[-1]['Vencedor'] = match.player1_nickname
-                    elif match.score2 > match.score1:
-                        data[-1]['Vencedor'] = match.player2_nickname
-                    else:
-                        data[-1]['Vencedor'] = 'Empate'
-            
-            if data:
-                df = pd.DataFrame(data)
-                
-                # Nome da aba (máximo 31 caracteres)
-                sheet_name = stadium[:31] if len(stadium) > 31 else stadium
-                
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-                
-                # Formatação
-                worksheet = writer.sheets[sheet_name]
-                
-                # Cores
-                green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
-                red_fill = PatternFill(start_color='FFB6C1', end_color='FFB6C1', fill_type='solid')
-                
-                # Aplicar formatação
-                for row_idx, row_data in enumerate(data, start=2):
-                    vencedor = row_data['Vencedor']
-                    p1_name = row_data['Jogador 1']
-                    p2_name = row_data['Jogador 2']
-                    
-                    # Célula B (Jogador 1)
-                    if vencedor == p1_name:
-                        worksheet[f'B{row_idx}'].fill = green_fill
-                    elif vencedor == p2_name and vencedor != 'Empate':
-                        worksheet[f'B{row_idx}'].fill = red_fill
-                    
-                    # Célula F (Jogador 2)
-                    if vencedor == p2_name:
-                        worksheet[f'F{row_idx}'].fill = green_fill
-                    elif vencedor == p1_name and vencedor != 'Empate':
-                        worksheet[f'F{row_idx}'].fill = red_fill
-                
-                # Ajustar largura das colunas
-                for column in worksheet.columns:
-                    max_length = 0
-                    column_letter = column[0].column_letter
-                    for cell in column:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(cell.value)
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 50)
-                    worksheet.column_dimensions[column_letter].width = adjusted_width
+        # Conta partidas finalizadas
+        finished_count = Match.query.filter_by(status='finished').count()
         
-        # Adicionar aba de estatísticas
-        stats_data = []
-        stats_by_player = {}
+        # Top scorers e winners
+        top_scorers = stats_calculator.get_top_scorers(limit=5)
+        top_winners = stats_calculator.get_top_winners(limit=5)
         
-        for match in matches:
-            if match.player1_nickname and match.score1 is not None and match.score2 is not None:
-                p1 = match.player1_nickname
-                if p1 not in stats_by_player:
-                    stats_by_player[p1] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0, 'championships': set()}
-                
-                stats_by_player[p1]['goals_for'] += match.score1
-                stats_by_player[p1]['goals_against'] += match.score2
-                
-                if match.score1 > match.score2:
-                    stats_by_player[p1]['wins'] += 1
-                    if match.tournament_token:
-                        stats_by_player[p1]['championships'].add(match.tournament_token)
-                elif match.score1 < match.score2:
-                    stats_by_player[p1]['losses'] += 1
-            
-            if match.player2_nickname and match.score1 is not None and match.score2 is not None:
-                p2 = match.player2_nickname
-                if p2 not in stats_by_player:
-                    stats_by_player[p2] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0, 'championships': set()}
-                
-                stats_by_player[p2]['goals_for'] += match.score2
-                stats_by_player[p2]['goals_against'] += match.score1
-                
-                if match.score2 > match.score1:
-                    stats_by_player[p2]['wins'] += 1
-                    if match.tournament_token:
-                        stats_by_player[p2]['championships'].add(match.tournament_token)
-                elif match.score2 < match.score1:
-                    stats_by_player[p2]['losses'] += 1
+        return render_template(
+            'statistics.html',
+            stats_by_stadium=stats_by_stadium,
+            finished_count=finished_count,
+            top_scorers=top_scorers,
+            top_winners=top_winners,
+            last_update=stats_calculator.cache_timestamp
+        )
+    
+    except Exception as e:
+        logger.error(f"Erro na página de estatísticas: {e}")
+        return render_template('statistics.html', stats_by_stadium={}, error=str(e))
+
+
+@app.route('/players')
+def players():
+    """Página com todos os jogadores de todos os estádios"""
+    try:
+        from sqlalchemy import or_
         
-        for player, stats in stats_by_player.items():
-            stats_data.append({
-                'Jogador': player,
-                'Vitórias': stats['wins'],
-                'Derrotas': stats['losses'],
-                'Gols Marcados': stats['goals_for'],
-                'Gols Sofridos': stats['goals_against'],
-                'Saldo': stats['goals_for'] - stats['goals_against'],
-                'Campeonatos': ', '.join(sorted(stats['championships'])) if stats['championships'] else '-'
-            })
+        # Busca TODOS os jogadores únicos
+        home_players = Match.query.with_entities(Match.home_player, Match.location)\
+                                   .filter(Match.home_player.isnot(None))\
+                                   .distinct().all()
         
-        if stats_data:
-            df_stats = pd.DataFrame(stats_data)
-            df_stats = df_stats.sort_values('Vitórias', ascending=False)
-            df_stats.to_excel(writer, sheet_name='Estatísticas', index=False)
-            
-            worksheet_stats = writer.sheets['Estatísticas']
-            for column in worksheet_stats.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(cell.value)
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                worksheet_stats.column_dimensions[column_letter].width = adjusted_width
+        away_players = Match.query.with_entities(Match.away_player, Match.location)\
+                                   .filter(Match.away_player.isnot(None))\
+                                   .distinct().all()
+        
+        # Organiza por estádio
+        players_by_stadium = {}
+        
+        for player, stadium in home_players + away_players:
+            if stadium not in players_by_stadium:
+                players_by_stadium[stadium] = set()
+            players_by_stadium[stadium].add(player)
+        
+        # Converte para listas ordenadas
+        for stadium in players_by_stadium:
+            players_by_stadium[stadium] = sorted(list(players_by_stadium[stadium]))
+        
+        # Obtém estatísticas
+        all_stats = stats_calculator.get_cached_statistics()
+        player_stats = all_stats.get('all_players', {})
+        
+        return render_template(
+            'players.html',
+            players_by_stadium=players_by_stadium,
+            player_stats=player_stats,
+            total_players=sum(len(p) for p in players_by_stadium.values())
+        )
     
-    output.seek(0)
-    
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f'{filename}.xlsx')
+    except Exception as e:
+        logger.error(f"Erro na página de jogadores: {e}")
+        return render_template('players.html', players_by_stadium={}, error=str(e))
 
 
-
-@app.route('/api/download/all')
-def download_all():
-    """Download de todas as partidas finalizadas"""
-    matches = Match.query.filter_by(status_id=3).all()  # Apenas finalizadas
-    return generate_excel_report(matches, 'FIFA25_Todas_Partidas')
+@app.route('/reports')
+def reports():
+    """Página de relatórios"""
+    return render_template('reports.html')
 
 
-@app.route('/api/download/today')
-def download_today():
-    """Download das partidas finalizadas de hoje"""
-    today = datetime.now().date()
-    matches = Match.query.filter(
-        db.func.date(Match.date) == today,
-        Match.status_id == 3  # Apenas finalizadas
-    ).all()
-    return generate_excel_report(matches, 'FIFA25_Partidas_Hoje')
+# ============================================================
+# ROTAS - API
+# ============================================================
 
-
-@app.route('/api/download/custom')
-def download_custom():
-    """Download personalizado - apenas finalizadas"""
-    date_from = request.args.get('date_from')
-    date_to = request.args.get('date_to')
-    
-    query = Match.query.filter_by(status_id=3)  # Apenas finalizadas
-    
-    if date_from:
-        from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
-        query = query.filter(db.func.date(Match.date) >= from_date)
-    
-    if date_to:
-        to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
-        query = query.filter(db.func.date(Match.date) <= to_date)
-    
-    matches = query.all()
-    filename = f'FIFA25_Personalizado_{date_from}_a_{date_to}'
-    return generate_excel_report(matches, filename)
-
-
-@app.route('/api/download/players')
-def download_players():
-    """Download estatísticas dos jogadores"""
-    import pandas as pd
-    
-    players_data = []
-    player_ids = set()
-    
-    all_matches = Match.query.filter_by(status_id=3).all()
-    
-    for match in all_matches:
-        if match.player1_id:
-            player_ids.add(match.player1_id)
-        if match.player2_id:
-            player_ids.add(match.player2_id)
-    
-    for player_id in player_ids:
-        stats = calculate_player_stats(player_id)
-        if stats and stats['total_matches'] > 0:
-            players_data.append(stats)
-    
-    df = pd.DataFrame(players_data)
-    
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Estatísticas', index=False)
-    
-    output.seek(0)
-    
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='FIFA25_Estatisticas_Jogadores.xlsx')
+@app.route('/api/stats')
+def api_stats():
+    """API: Estatísticas gerais"""
+    stats = get_match_statistics()
+    return jsonify(stats)
 
 
 @app.route('/api/matches/count')
-def matches_count():
-    """Conta partidas por data"""
+def api_matches_count():
+    """API: Contagem de partidas por data"""
     date_str = request.args.get('date')
     
     if date_str:
         try:
-            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-            count = Match.query.filter(db.func.date(Match.date) == date_obj).count()
-            return jsonify({'count': count, 'date': date_str})
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            count = Match.query.filter(
+                db.func.date(Match.match_date) == date
+            ).count()
         except:
-            return jsonify({'error': 'Data inválida'}), 400
+            count = 0
+    else:
+        count = Match.query.count()
     
-    return jsonify({'error': 'Data não fornecida'}), 400
+    return jsonify({'count': count, 'date': date_str})
 
-# ==================== INICIALIZAÇÃO ====================
 
-# Inicializar banco de dados
-init_db()
+@app.route('/api/statistics/all')
+def api_all_statistics():
+    """API: Todas as estatísticas"""
+    try:
+        stats = stats_calculator.get_cached_statistics()
+        return jsonify({
+            'success': True,
+            'data': stats,
+            'timestamp': stats_calculator.cache_timestamp.isoformat() if stats_calculator.cache_timestamp else None
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-# Configurar scheduler
-if RUN_SCRAPER:
-    scheduler = setup_scheduler()
-    logger.info("✅ Scheduler iniciado com sucesso")
-else:
-    logger.warning("⚠️ Scraper desabilitado")
 
-# Executar primeira varredura ao iniciar
+@app.route('/api/statistics/player/<player_name>')
+def api_player_statistics(player_name):
+    """API: Estatísticas de um jogador"""
+    try:
+        stats = stats_calculator.calculate_player_statistics(player_name=player_name)
+        return jsonify({
+            'success': True,
+            'player': player_name,
+            'stats': stats.get(player_name, {})
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/statistics/top-scorers')
+def api_top_scorers():
+    """API: Top artilheiros"""
+    limit = request.args.get('limit', 10, type=int)
+    stadium = request.args.get('stadium')
+    
+    try:
+        scorers = stats_calculator.get_top_scorers(limit=limit, stadium=stadium)
+        return jsonify({'success': True, 'scorers': scorers})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/statistics/top-winners')
+def api_top_winners():
+    """API: Top vencedores"""
+    limit = request.args.get('limit', 10, type=int)
+    stadium = request.args.get('stadium')
+    
+    try:
+        winners = stats_calculator.get_top_winners(limit=limit, stadium=stadium)
+        return jsonify({'success': True, 'winners': winners})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/download/excel')
+def download_excel():
+    """Download da planilha Excel"""
+    try:
+        excel_path = excel_exporter.excel_path
+        
+        if os.path.exists(excel_path):
+            return send_file(
+                excel_path,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=f'FIFA25_Partidas_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx'
+            )
+        else:
+            return jsonify({'error': 'Arquivo não encontrado'}), 404
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/force-update')
+def force_update():
+    """Força atualização completa (debug)"""
+    try:
+        # Verifica partidas finalizadas
+        check_finished_matches()
+        
+        # Exporta pendentes
+        excel_exporter.export_all_finished_matches()
+        
+        # Atualiza estatísticas
+        stats_calculator.refresh_cache()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Atualização forçada concluída',
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================
+# INICIALIZAÇÃO
+# ============================================================
+
+# Cria tabelas se não existirem
 with app.app_context():
-    run_scraper()
+    db.create_all()
+    logger.info("✅ Banco de dados inicializado")
 
+# Carrega cache inicial de estatísticas
+try:
+    with app.app_context():
+        stats_calculator.refresh_cache()
+        logger.info("✅ Cache inicial de estatísticas carregado")
+except Exception as e:
+    logger.error(f"⚠️ Erro ao carregar cache inicial: {e}")
+
+# Log de jobs agendados
+logger.info("\n" + "="*60)
+logger.info("📅 JOBS AGENDADOS:")
+logger.info(f"   - Scraper FIFA25: a cada {SCAN_INTERVAL}s")
+logger.info("   - Verificar Finalizadas: a cada 2 min")
+logger.info("   - Exportar Excel: a cada 5 min")
+logger.info("   - Atualizar Estatísticas: a cada 5 min")
+logger.info("   - Limpar Antigas: 1x/dia às 3h")
+logger.info("="*60 + "\n")
+
+
+# ============================================================
+# EXECUÇÃO
+# ============================================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    app.run(host='0.0.0.0', port=port, debug=False)

@@ -1,222 +1,616 @@
+<!-- templates/matches_updated.html -->
+<!-- Template atualizado para exibir partidas ao vivo com rastreamento de gols -->
+
 {% extends "layout.html" %}
 
-{% block title %}Partidas Ao Vivo - FIFA 25 Bot{% endblock %}
+{% block title %}Partidas Ao Vivo - FIFA25 Bot{% endblock %}
 
-{% block extra_styles %}
+{% block extra_css %}
 <style>
-    .live-header {
-        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-        color: white;
-        padding: 30px;
-        border-radius: 15px;
-        text-align: center;
-        margin-bottom: 30px;
-        box-shadow: 0 5px 20px rgba(231, 76, 60, 0.3);
+    .matches-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
     }
-    
-    .live-count {
-        font-size: 3em;
-        font-weight: bold;
-        margin: 10px 0;
-        animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.8; transform: scale(1.05); }
-    }
-    
-    .matches-grid {
-        display: grid;
-        gap: 20px;
-    }
-    
+
     .match-card {
         background: white;
-        padding: 25px;
-        border-radius: 15px;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        border-left: 5px solid #e74c3c;
-        transition: all 0.3s;
+        border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        overflow: hidden;
+        transition: transform 0.2s, box-shadow 0.2s;
     }
-    
+
     .match-card:hover {
-        transform: translateX(5px);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
     }
-    
+
+    .match-card.live {
+        border: 2px solid #dc3545;
+    }
+
     .match-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px 20px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
     }
-    
+
     .live-badge {
-        background: #e74c3c;
+        background: #dc3545;
         color: white;
-        padding: 8px 20px;
-        border-radius: 25px;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 12px;
         font-weight: bold;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        animation: pulse 2s infinite;
+    }
+
+    .live-dot {
+        width: 8px;
+        height: 8px;
+        background: white;
+        border-radius: 50%;
         animation: blink 1.5s infinite;
     }
-    
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+
     @keyframes blink {
         0%, 100% { opacity: 1; }
-        50% { opacity: 0.6; }
+        50% { opacity: 0.3; }
     }
-    
-    .match-content {
+
+    .match-time {
+        font-size: 18px;
+        font-weight: bold;
+    }
+
+    .match-body {
+        padding: 25px;
+    }
+
+    .match-teams {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        gap: 30px;
+        justify-content: space-between;
+        margin-bottom: 25px;
     }
-    
-    .player-section {
+
+    .team {
         flex: 1;
-        text-align: center;
-        background: #f8f9fa;
-        padding: 20px;
-        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
     }
-    
-    .player-name {
-        font-size: 1.4em;
-        font-weight: bold;
+
+    .team img {
+        width: 60px;
+        height: 60px;
+        object-fit: contain;
+    }
+
+    .team-name {
+        font-weight: 600;
+        font-size: 16px;
+        text-align: center;
         color: #333;
-        margin-bottom: 10px;
     }
-    
-    .player-team {
-        color: #666;
-        margin-bottom: 15px;
-    }
-    
-    .live-score {
-        font-size: 3em;
+
+    .score {
+        font-size: 42px;
         font-weight: bold;
-        color: #e74c3c;
-        margin-top: 10px;
+        color: #667eea;
     }
-    
-    .vs-divider {
-        font-size: 2em;
+
+    .vs {
+        font-size: 18px;
         font-weight: bold;
-        color: #e74c3c;
+        color: #999;
+        margin: 0 20px;
     }
-    
-    .match-details {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 15px;
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 2px dashed #f0f0f0;
-    }
-    
-    .detail-item {
+
+    .match-info {
+        display: flex;
+        justify-content: space-around;
+        padding: 15px;
         background: #f8f9fa;
-        padding: 12px;
         border-radius: 8px;
-        text-align: center;
-        font-size: 0.9em;
-    }
-    
-    .detail-icon {
-        font-size: 1.5em;
-        margin-bottom: 5px;
-    }
-    
-    .empty-state {
-        background: white;
-        padding: 80px 40px;
-        border-radius: 15px;
-        text-align: center;
-    }
-    
-    .empty-icon {
-        font-size: 5em;
-        opacity: 0.2;
         margin-bottom: 20px;
     }
-    
-    .refresh-timer {
-        background: white;
-        padding: 15px;
-        border-radius: 10px;
+
+    .info-item {
         text-align: center;
-        margin-top: 20px;
+    }
+
+    .info-label {
+        font-size: 12px;
         color: #666;
+        margin-bottom: 5px;
+    }
+
+    .info-value {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+    }
+
+    /* SEÇÃO DE EVENTOS/GOLS */
+    .match-events {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 2px solid #f0f0f0;
+    }
+
+    .events-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+    }
+
+    .events-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .event-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+
+    .event-item.goal-event {
+        background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+        color: white;
+        animation: slideIn 0.5s ease-out;
+    }
+
+    .event-item.goal-event.new {
+        animation: slideIn 0.5s ease-out, glow 2s ease-in-out infinite;
+    }
+
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateX(-30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+
+    @keyframes glow {
+        0%, 100% {
+            box-shadow: 0 0 10px rgba(40, 167, 69, 0.5);
+        }
+        50% {
+            box-shadow: 0 0 20px rgba(40, 167, 69, 0.8);
+        }
+    }
+
+    .event-minute {
+        font-weight: bold;
+        font-size: 16px;
+        min-width: 40px;
+    }
+
+    .event-icon {
+        font-size: 24px;
+    }
+
+    .event-player {
+        flex: 1;
+        font-weight: 600;
+        font-size: 15px;
+    }
+
+    .event-assist {
+        font-size: 13px;
+        opacity: 0.9;
+        font-style: italic;
+    }
+
+    .event-team-badge {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: bold;
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .no-events {
+        text-align: center;
+        padding: 20px;
+        color: #999;
+        font-style: italic;
+    }
+
+    /* BOTÕES DE AÇÃO */
+    .match-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+    .btn {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        text-decoration: none;
+        text-align: center;
+        display: inline-block;
+    }
+
+    .btn-watch {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+
+    .btn-watch:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-details {
+        background: #f8f9fa;
+        color: #333;
+        border: 2px solid #e0e0e0;
+    }
+
+    .btn-details:hover {
+        background: #e9ecef;
+    }
+
+    /* NOTIFICAÇÃO FLUTUANTE DE GOL */
+    .goal-notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        color: white;
+        padding: 20px 25px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        z-index: 9999;
+        animation: slideInRight 0.5s ease-out;
+        max-width: 400px;
+    }
+
+    @keyframes slideInRight {
+        from {
+            opacity: 0;
+            transform: translateX(100px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+
+    .notification-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        font-size: 20px;
+        font-weight: bold;
+    }
+
+    .notification-body {
+        font-size: 15px;
+        line-height: 1.5;
+    }
+
+    /* LOADING */
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+    }
+
+    .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #667eea;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* RESPONSIVO */
+    @media (max-width: 768px) {
+        .match-teams {
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .vs {
+            transform: rotate(90deg);
+            margin: 0;
+        }
+
+        .score {
+            font-size: 32px;
+        }
+
+        .team img {
+            width: 50px;
+            height: 50px;
+        }
+
+        .goal-notification {
+            right: 10px;
+            left: 10px;
+            max-width: none;
+        }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="live-header">
-    <h1>🔴 PARTIDAS AO VIVO</h1>
-    <div class="live-count">{{ total_matches }}</div>
-    <p>partidas acontecendo agora</p>
+<div class="matches-container">
+    <div class="page-header">
+        <h1>🔴 Partidas Ao Vivo</h1>
+        <p id="last-update">Última atualização: carregando...</p>
+    </div>
+
+    <div id="matches-list">
+        <!-- Loading inicial -->
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>Carregando partidas ao vivo...</p>
+        </div>
+    </div>
 </div>
 
-{% if matches %}
-    <div class="matches-grid">
-        {% for match in matches %}
-        <div class="match-card">
-            <div class="match-header">
-                <strong>Match #{{ match.match_id }}</strong>
-                <span class="live-badge">🔴 AO VIVO</span>
+<!-- Container para notificações -->
+<div id="notifications-container"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Configurações
+const UPDATE_INTERVAL = 10000; // 10 segundos
+let lastUpdate = null;
+let knownGoals = new Set(); // Para rastrear gols já vistos
+
+// Busca atualizações das partidas
+async function fetchLiveUpdates() {
+    try {
+        const response = await fetch('/api/matches/live/updates');
+        const data = await response.json();
+
+        if (data.success) {
+            updateMatchesList(data.matches);
+            updateLastUpdateTime(data.timestamp);
+        }
+    } catch (error) {
+        console.error('Erro ao buscar atualizações:', error);
+    }
+}
+
+// Atualiza lista de partidas
+function updateMatchesList(matches) {
+    const container = document.getElementById('matches-list');
+
+    if (matches.length === 0) {
+        container.innerHTML = '<div class="no-events"><p>Nenhuma partida ao vivo no momento</p></div>';
+        return;
+    }
+
+    // Limpa container
+    container.innerHTML = '';
+
+    // Cria cards das partidas
+    matches.forEach(match => {
+        const card = createMatchCard(match);
+        container.appendChild(card);
+
+        // Verifica novos gols
+        if (match.has_new_goal) {
+            checkForNewGoals(match);
+        }
+    });
+}
+
+// Cria card de partida
+function createMatchCard(match) {
+    const card = document.createElement('div');
+    card.className = 'match-card live';
+    card.dataset.matchId = match.match_id;
+
+    const goalsHTML = match.goals && match.goals.length > 0
+        ? match.goals.map(goal => `
+            <div class="event-item goal-event ${isNewGoal(goal) ? 'new' : ''}">
+                <span class="event-minute">${goal.minute}'</span>
+                <span class="event-icon">⚽</span>
+                <span class="event-player">${goal.player_name}</span>
+                ${goal.assist_player ? `<span class="event-assist">(${goal.assist_player})</span>` : ''}
+                <span class="event-team-badge">${goal.team.toUpperCase()}</span>
             </div>
-            
-            <div class="match-content">
-                <div class="player-section">
-                    <div class="player-name">{{ match.player1_nickname }}</div>
-                    <div class="player-team">⚽ {{ match.player1_team_name }}</div>
-                    <div class="live-score">{{ match.score1 if match.score1 is not none else '-' }}</div>
+        `).join('')
+        : '<div class="no-events">Nenhum gol até o momento</div>';
+
+    card.innerHTML = `
+        <div class="match-header">
+            <div class="live-badge">
+                <span class="live-dot"></span>
+                AO VIVO
+            </div>
+            <div class="match-time">${match.minute}'</div>
+        </div>
+
+        <div class="match-body">
+            <div class="match-teams">
+                <div class="team home">
+                    <div class="team-name">${match.home_team}</div>
+                    <div class="score">${match.home_score}</div>
                 </div>
-                
-                <div class="vs-divider">VS</div>
-                
-                <div class="player-section">
-                    <div class="player-name">{{ match.player2_nickname }}</div>
-                    <div class="player-team">⚽ {{ match.player2_team_name }}</div>
-                    <div class="live-score">{{ match.score2 if match.score2 is not none else '-' }}</div>
+
+                <div class="vs">VS</div>
+
+                <div class="team away">
+                    <div class="score">${match.away_score}</div>
+                    <div class="team-name">${match.away_team}</div>
                 </div>
             </div>
-            
-            <div class="match-details">
-                <div class="detail-item">
-                    <div class="detail-icon">📍</div>
-                    <div>{{ match.location_name }}</div>
+
+            <div class="match-info">
+                <div class="info-item">
+                    <div class="info-label">Match ID</div>
+                    <div class="info-value">#${match.match_id}</div>
                 </div>
-                <div class="detail-item">
-                    <div class="detail-icon">🏆</div>
-                    <div>{{ match.tournament_token }}</div>
+                <div class="info-item">
+                    <div class="info-label">Status</div>
+                    <div class="info-value">${match.status.toUpperCase()}</div>
                 </div>
-                <div class="detail-item">
-                    <div class="detail-icon">🎮</div>
-                    <div>{{ match.console_token }}</div>
+            </div>
+
+            <div class="match-events">
+                <div class="events-header">
+                    <span>⚽</span>
+                    <span>Gols da Partida (${match.goals ? match.goals.length : 0})</span>
                 </div>
+                <div class="events-list">
+                    ${goalsHTML}
+                </div>
+            </div>
+
+            <div class="match-actions">
+                <a href="#" class="btn btn-watch" onclick="openStream('${match.match_id}')">
+                    📺 Assistir ao Vivo
+                </a>
+                <a href="/match/${match.match_id}" class="btn btn-details">
+                    📊 Detalhes
+                </a>
             </div>
         </div>
-        {% endfor %}
-    </div>
-{% else %}
-    <div class="empty-state">
-        <div class="empty-icon">🎮</div>
-        <h2>Nenhuma partida ao vivo</h2>
-        <p>Aguardando início das partidas...</p>
-    </div>
-{% endif %}
+    `;
 
-<div class="refresh-timer">
-    ⏱️ Atualizando automaticamente a cada 10 segundos
-</div>
+    return card;
+}
 
-<script>
-    // Auto-refresh a cada 10 segundos
-    setTimeout(function() {
-        location.reload();
-    }, 10000);
+// Verifica se é um gol novo
+function isNewGoal(goal) {
+    const goalKey = `${goal.match_id}_${goal.player_name}_${goal.minute}`;
+    return !knownGoals.has(goalKey);
+}
+
+// Verifica e notifica novos gols
+function checkForNewGoals(match) {
+    if (!match.goals) return;
+
+    match.goals.forEach(goal => {
+        const goalKey = `${match.match_id}_${goal.player_name}_${goal.minute}`;
+
+        if (!knownGoals.has(goalKey)) {
+            knownGoals.add(goalKey);
+
+            // Só mostra notificação para gols realmente novos (não no primeiro carregamento)
+            if (lastUpdate !== null) {
+                showGoalNotification(match, goal);
+                playGoalSound();
+            }
+        }
+    });
+}
+
+// Mostra notificação de gol
+function showGoalNotification(match, goal) {
+    const container = document.getElementById('notifications-container');
+
+    const notification = document.createElement('div');
+    notification.className = 'goal-notification';
+    notification.innerHTML = `
+        <div class="notification-header">
+            <span>⚽</span>
+            <span>GOOOOL!</span>
+        </div>
+        <div class="notification-body">
+            <strong>${match.home_team} ${match.home_score} x ${match.away_score} ${match.away_team}</strong>
+            <p>Gol de <strong>${goal.player_name}</strong> aos ${goal.minute}'</p>
+        </div>
+    `;
+
+    container.appendChild(notification);
+
+    // Remove após 6 segundos
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => notification.remove(), 300);
+    }, 6000);
+}
+
+// Toca som de gol (opcional)
+function playGoalSound() {
+    try {
+        const audio = new Audio('/static/goal-sound.mp3');
+        audio.volume = 0.3;
+        audio.play().catch(e => console.log('Não foi possível tocar o som:', e));
+    } catch (e) {
+        console.log('Som não disponível');
+    }
+}
+
+// Atualiza timestamp
+function updateLastUpdateTime(timestamp) {
+    const element = document.getElementById('last-update');
+    const date = new Date(timestamp);
+    element.textContent = `Última atualização: ${date.toLocaleTimeString()}`;
+}
+
+// Abre stream (implementar conforme sua necessidade)
+function openStream(matchId) {
+    // Redireciona para URL do stream ou abre modal
+    window.open(`/stream/${matchId}`, '_blank');
+}
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', () => {
+    // Primeira busca
+    fetchLiveUpdates();
+
+    // Atualiza periodicamente
+    setInterval(fetchLiveUpdates, UPDATE_INTERVAL);
+
+    console.log('🎮 Sistema de rastreamento ao vivo iniciado!');
+});
+
+// Recarrega quando a aba fica visível novamente
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        fetchLiveUpdates();
+    }
+});
 </script>
 {% endblock %}
