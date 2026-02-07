@@ -1146,26 +1146,47 @@ def history_recent():
 
 @app.route('/statistics')
 def statistics():
-    """Aba Estatísticas - Pontuação completa por estádio"""
+    """Aba Estatísticas - Pontuação completa por estádio com PLACARES"""
     try:
         stats_by_stadium = {}
         
         # Buscar todas as partidas finalizadas
-        finished_matches = Match.query.filter_by(status_id=3).all()
+        finished_matches = Match.query.filter_by(status_id=3).order_by(Match.date.desc()).all()
         
         # Organizar por estádio
         for match in finished_matches:
             stadium = match.location_name or 'Estádio Desconhecido'
             
             if stadium not in stats_by_stadium:
-                stats_by_stadium[stadium] = {}
+                stats_by_stadium[stadium] = {
+                    'matches': [],  # LISTA DE PLACARES
+                    'players': {}   # ESTATÍSTICAS
+                }
             
-            # Processar Player 1
+            # Adicionar PLACAR DA PARTIDA
+            if match.score1 is not None and match.score2 is not None:
+                winner = 'draw'
+                if match.score1 > match.score2:
+                    winner = match.player1_nickname
+                elif match.score2 > match.score1:
+                    winner = match.player2_nickname
+                
+                stats_by_stadium[stadium]['matches'].append({
+                    'date': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
+                    'player1': match.player1_nickname or 'TBD',
+                    'player2': match.player2_nickname or 'TBD',
+                    'score1': match.score1,
+                    'score2': match.score2,
+                    'tournament': match.tournament_token or 'N/A',
+                    'winner': winner
+                })
+            
+            # Processar Player 1 (ESTATÍSTICAS)
             if match.player1_nickname:
                 p1_name = match.player1_nickname
                 
-                if p1_name not in stats_by_stadium[stadium]:
-                    stats_by_stadium[stadium][p1_name] = {
+                if p1_name not in stats_by_stadium[stadium]['players']:
+                    stats_by_stadium[stadium]['players'][p1_name] = {
                         'name': p1_name,
                         'wins': 0,
                         'losses': 0,
@@ -1176,22 +1197,22 @@ def statistics():
                     }
                 
                 if match.score1 is not None and match.score2 is not None:
-                    stats_by_stadium[stadium][p1_name]['goals_scored'] += match.score1
-                    stats_by_stadium[stadium][p1_name]['goals_conceded'] += match.score2
+                    stats_by_stadium[stadium]['players'][p1_name]['goals_scored'] += match.score1
+                    stats_by_stadium[stadium]['players'][p1_name]['goals_conceded'] += match.score2
                     
                     if match.score1 > match.score2:
-                        stats_by_stadium[stadium][p1_name]['wins'] += 1
+                        stats_by_stadium[stadium]['players'][p1_name]['wins'] += 1
                         if match.tournament_token:
-                            stats_by_stadium[stadium][p1_name]['championships'].add(match.tournament_token)
+                            stats_by_stadium[stadium]['players'][p1_name]['championships'].add(match.tournament_token)
                     elif match.score1 < match.score2:
-                        stats_by_stadium[stadium][p1_name]['losses'] += 1
+                        stats_by_stadium[stadium]['players'][p1_name]['losses'] += 1
             
-            # Processar Player 2
+            # Processar Player 2 (ESTATÍSTICAS)
             if match.player2_nickname:
                 p2_name = match.player2_nickname
                 
-                if p2_name not in stats_by_stadium[stadium]:
-                    stats_by_stadium[stadium][p2_name] = {
+                if p2_name not in stats_by_stadium[stadium]['players']:
+                    stats_by_stadium[stadium]['players'][p2_name] = {
                         'name': p2_name,
                         'wins': 0,
                         'losses': 0,
@@ -1202,33 +1223,36 @@ def statistics():
                     }
                 
                 if match.score1 is not None and match.score2 is not None:
-                    stats_by_stadium[stadium][p2_name]['goals_scored'] += match.score2
-                    stats_by_stadium[stadium][p2_name]['goals_conceded'] += match.score1
+                    stats_by_stadium[stadium]['players'][p2_name]['goals_scored'] += match.score2
+                    stats_by_stadium[stadium]['players'][p2_name]['goals_conceded'] += match.score1
                     
                     if match.score2 > match.score1:
-                        stats_by_stadium[stadium][p2_name]['wins'] += 1
+                        stats_by_stadium[stadium]['players'][p2_name]['wins'] += 1
                         if match.tournament_token:
-                            stats_by_stadium[stadium][p2_name]['championships'].add(match.tournament_token)
+                            stats_by_stadium[stadium]['players'][p2_name]['championships'].add(match.tournament_token)
                     elif match.score2 < match.score1:
-                        stats_by_stadium[stadium][p2_name]['losses'] += 1
+                        stats_by_stadium[stadium]['players'][p2_name]['losses'] += 1
         
         # Calcular saldo de gols e converter championships para lista
         for stadium in stats_by_stadium:
-            for player_name in stats_by_stadium[stadium]:
-                player = stats_by_stadium[stadium][player_name]
+            for player_name in stats_by_stadium[stadium]['players']:
+                player = stats_by_stadium[stadium]['players'][player_name]
                 player['goal_diff'] = player['goals_scored'] - player['goals_conceded']
                 player['championships'] = sorted(list(player['championships']))
         
-        # Converter para lista ordenada por vitórias
-        stats_by_stadium_sorted = {}
-        for stadium, players in sorted(stats_by_stadium.items()):
-            stats_by_stadium_sorted[stadium] = sorted(
-                players.values(),
-                key=lambda x: x['wins'],
-                reverse=True
-            )
+        # Converter players para lista ordenada por vitórias
+        stats_by_stadium_final = {}
+        for stadium in sorted(stats_by_stadium.keys()):
+            stats_by_stadium_final[stadium] = {
+                'matches': stats_by_stadium[stadium]['matches'],
+                'players': sorted(
+                    stats_by_stadium[stadium]['players'].values(),
+                    key=lambda x: x['wins'],
+                    reverse=True
+                )
+            }
         
-        return render_template('statistics.html', stats_by_stadium=stats_by_stadium_sorted)
+        return render_template('statistics.html', stats_by_stadium=stats_by_stadium_final)
     
     except Exception as e:
         logger.error(f"❌ Erro na rota /statistics: {e}")
@@ -1325,6 +1349,7 @@ def generate_excel_report(matches, filename):
                 # Cores
                 green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
                 red_fill = PatternFill(start_color='FFB6C1', end_color='FFB6C1', fill_type='solid')
+                yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
                 
                 # Aplicar formatação
                 for row_idx, row_data in enumerate(data, start=2):
@@ -1332,17 +1357,22 @@ def generate_excel_report(matches, filename):
                     p1_name = row_data['Jogador 1']
                     p2_name = row_data['Jogador 2']
                     
-                    # Célula B (Jogador 1)
-                    if vencedor == p1_name:
-                        worksheet[f'B{row_idx}'].fill = green_fill
-                    elif vencedor == p2_name and vencedor != 'Empate':
-                        worksheet[f'B{row_idx}'].fill = red_fill
-                    
-                    # Célula F (Jogador 2)
-                    if vencedor == p2_name:
-                        worksheet[f'F{row_idx}'].fill = green_fill
-                    elif vencedor == p1_name and vencedor != 'Empate':
-                        worksheet[f'F{row_idx}'].fill = red_fill
+                    # Empate - AMARELO para ambos
+                    if vencedor == 'Empate':
+                        worksheet[f'B{row_idx}'].fill = yellow_fill
+                        worksheet[f'F{row_idx}'].fill = yellow_fill
+                    else:
+                        # Célula B (Jogador 1)
+                        if vencedor == p1_name:
+                            worksheet[f'B{row_idx}'].fill = green_fill
+                        elif vencedor == p2_name:
+                            worksheet[f'B{row_idx}'].fill = red_fill
+                        
+                        # Célula F (Jogador 2)
+                        if vencedor == p2_name:
+                            worksheet[f'F{row_idx}'].fill = green_fill
+                        elif vencedor == p1_name:
+                            worksheet[f'F{row_idx}'].fill = red_fill
                 
                 # Ajustar largura das colunas
                 for column in worksheet.columns:
