@@ -1296,9 +1296,13 @@ def generate_excel_report(matches, filename):
     import pandas as pd
     from openpyxl.styles import PatternFill
     
-    # Agrupar partidas por estádio
+    # Agrupar partidas por estádio (APENAS com placares válidos)
     matches_by_stadium = {}
     for match in matches:
+        # PULAR partidas sem placares
+        if match.score1 is None or match.score2 is None:
+            continue
+            
         stadium = match.location_name or 'Estádio Desconhecido'
         
         if stadium not in matches_by_stadium:
@@ -1314,26 +1318,26 @@ def generate_excel_report(matches, filename):
             data = []
             
             for match in stadium_matches:
+                # Determinar vencedor
+                vencedor = ''
+                if match.score1 > match.score2:
+                    vencedor = match.player1_nickname or 'N/A'
+                elif match.score2 > match.score1:
+                    vencedor = match.player2_nickname or 'N/A'
+                else:
+                    vencedor = 'Empate'
+                
                 data.append({
                     'Data/Hora': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
                     'Jogador 1': match.player1_nickname or 'N/A',
                     'Time 1': match.player1_team_name or 'N/A',
-                    'Gols P1': match.score1 if match.score1 is not None else 0,
-                    'Gols P2': match.score2 if match.score2 is not None else 0,
+                    'Gols P1': match.score1,
+                    'Gols P2': match.score2,
                     'Jogador 2': match.player2_nickname or 'N/A',
                     'Time 2': match.player2_team_name or 'N/A',
                     'Torneio': match.tournament_token or 'N/A',
-                    'Vencedor': ''
+                    'Vencedor': vencedor
                 })
-                
-                # Determinar vencedor
-                if match.score1 is not None and match.score2 is not None:
-                    if match.score1 > match.score2:
-                        data[-1]['Vencedor'] = match.player1_nickname
-                    elif match.score2 > match.score1:
-                        data[-1]['Vencedor'] = match.player2_nickname
-                    else:
-                        data[-1]['Vencedor'] = 'Empate'
             
             if data:
                 df = pd.DataFrame(data)
@@ -1459,29 +1463,39 @@ def generate_excel_report(matches, filename):
 
 @app.route('/api/download/all')
 def download_all():
-    """Download de todas as partidas finalizadas"""
-    matches = Match.query.filter_by(status_id=3).all()  # Apenas finalizadas
+    """Download de todas as partidas finalizadas COM PLACARES"""
+    matches = Match.query.filter(
+        Match.status_id == 3,
+        Match.score1.isnot(None),
+        Match.score2.isnot(None)
+    ).all()
     return generate_excel_report(matches, 'FIFA25_Todas_Partidas')
 
 
 @app.route('/api/download/today')
 def download_today():
-    """Download das partidas finalizadas de hoje"""
+    """Download das partidas finalizadas de hoje COM PLACARES"""
     today = datetime.now().date()
     matches = Match.query.filter(
         db.func.date(Match.date) == today,
-        Match.status_id == 3  # Apenas finalizadas
+        Match.status_id == 3,
+        Match.score1.isnot(None),
+        Match.score2.isnot(None)
     ).all()
     return generate_excel_report(matches, 'FIFA25_Partidas_Hoje')
 
 
 @app.route('/api/download/custom')
 def download_custom():
-    """Download personalizado - apenas finalizadas"""
+    """Download personalizado - apenas finalizadas COM PLACARES"""
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     
-    query = Match.query.filter_by(status_id=3)  # Apenas finalizadas
+    query = Match.query.filter(
+        Match.status_id == 3,
+        Match.score1.isnot(None),
+        Match.score2.isnot(None)
+    )
     
     if date_from:
         from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
