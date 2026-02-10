@@ -468,6 +468,13 @@ def save_match(match_data):
         if not match_id:
             return None
         
+        # LOG: Ver dados recebidos
+        score1 = match_data.get('score1')
+        score2 = match_data.get('score2')
+        status_id = match_data.get('status_id', 1)
+        
+        logger.debug(f"💾 Salvando partida {match_id}: status={status_id}, score1={score1}, score2={score2}")
+        
         # Verificar se já existe
         match = Match.query.filter_by(match_id=match_id).first()
         
@@ -476,7 +483,7 @@ def save_match(match_data):
             match.match_id = match_id
         
         # Atualizar dados
-        match.status_id = match_data.get('status_id', 1)
+        match.status_id = status_id
         match.date = datetime.fromisoformat(match_data.get('date', '').replace('Z', '+00:00')) if match_data.get('date') else None
         match.tournament_id = match_data.get('tournament_id')
         
@@ -513,9 +520,13 @@ def save_match(match_data):
         match.player2_team_name = team2.get('token_international', team2.get('token'))
         match.player2_team_logo = team2.get('logo')
         
-        # Score
-        match.score1 = match_data.get('score1')
-        match.score2 = match_data.get('score2')
+        # Score - CRÍTICO!
+        match.score1 = score1
+        match.score2 = score2
+        
+        # LOG se tem placar
+        if score1 is not None and score2 is not None:
+            logger.info(f"⚽ Partida {match_id}: {match.player1_nickname} {score1} x {score2} {match.player2_nickname}")
         
         # Tournament info
         tournament = match_data.get('tournament', {})
