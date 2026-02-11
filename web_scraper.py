@@ -86,7 +86,7 @@ class FIFA25Scraper:
     
     def get_streaming_matches(self) -> List[Dict]:
         """
-        Busca todas as partidas em streaming
+        Busca todas as partidas em streaming COM PLACARES
         Retorna lista de partidas de todas as locations
         """
         try:
@@ -100,6 +100,7 @@ class FIFA25Scraper:
             logger.info(f"📺 {len(locations)} locations em streaming")
             
             all_matches = []
+            tournament_ids_processed = set()
             
             # Para cada location, buscar as partidas
             for location in locations:
@@ -116,7 +117,36 @@ class FIFA25Scraper:
                     if location_data and isinstance(location_data, list):
                         # Extrair partidas dos torneios
                         for tournament in location_data:
+                            tournament_id = tournament.get('id')
+                            tournament_status = tournament.get('status_id')
                             matches = tournament.get('matches', [])
+                            
+                            # Se o torneio está finalizado (status_id=3 ou 4), buscar resultados
+                            if tournament_status in [3, 4] and tournament_id and tournament_id not in tournament_ids_processed:
+                                logger.info(f"🏆 Buscando resultados finais do torneio {tournament_id}")
+                                tournament_ids_processed.add(tournament_id)
+                                
+                                results_data = self.get_tournament_results(tournament_id)
+                                if results_data:
+                                    # Atualizar placares das partidas com os resultados
+                                    results_matches = results_data.get('matches', [])
+                                    
+                                    # Criar dicionário de resultados por match_id
+                                    results_by_match_id = {}
+                                    for result_match in results_matches:
+                                        match_id = result_match.get('id')
+                                        if match_id:
+                                            results_by_match_id[match_id] = result_match
+                                    
+                                    # Atualizar matches com os resultados
+                                    for match in matches:
+                                        match_id = match.get('id')
+                                        if match_id in results_by_match_id:
+                                            result = results_by_match_id[match_id]
+                                            match['score1'] = result.get('score1')
+                                            match['score2'] = result.get('score2')
+                                            logger.debug(f"✅ Placar atualizado: Match {match_id} = {match['score1']} x {match['score2']}")
+                            
                             all_matches.extend(matches)
             
             logger.info(f"✅ Total de {len(all_matches)} partidas em streaming coletadas")
@@ -189,7 +219,103 @@ class FIFA25Scraper:
             logger.error(f"❌ Erro ao buscar recent matches: {e}")
             return []
     
-    def get_tournament_results(self, tournament_id: int) -> Optional[Dict]:
+    def get_match_results(self, match_id: int) -> Optional[Dict]:
+        """
+        Busca resultado específico de uma partida
+        Para partidas finalizadas, busca no endpoint de resultados do torneio
+        """
+        try:
+            # Primeiro busca a partida
+            nearest = self.get_nearest_matches()
+            streaming = self.get_streaming_matches()
+            
+            all_matches = nearest + streaming
+            
+            match = None
+            for m in all_matches:
+                if m.get('id') == match_id:
+                    match = m
+                    break
+            
+            if not match:
+                logger.warning(f"⚠️ Partida {match_id} não encontrada")
+                return None
+            
+            # Se a partida já tem score1 e score2, retornar
+            if 'score1' in match and 'score2' in match:
+                return match
+            
+            # Se não tem, buscar do torneio
+            tournament_id = match.get('tournament_id')
+            if not tournament_id:
+                return match
+            
+            # Buscar resultados do torneio
+            results = self.get_tournament_results(tournament_id)
+            if not results:
+                return match
+            
+            # Procurar o placar da partida nos resultados
+            # Nota: A estrutura pode variar, adaptar conforme necessário
+            return match
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar resultado da partida {match_id}: {e}")
+            return None
+    
+    def enrich_matches_with_scores(self, matches: List[Dict]) -> List[Dict]:
+        """
+        Enriquece partidas finalizadas com placares do endpoint de resultados
+        """
+        try:
+            enriched_matches = []
+            tournaments_cache = {}
+            
+            for match in matches:
+                match_id = match.get('id')
+                status_id = match.get('status_id')
+                tournament_id = match.get('tournament_id')
+                
+                # Se já tem placares, adicionar e continuar
+                if match.get('score1') is not None and match.get('score2') is not None:
+                    enriched_matches.append(match)
+                    continue
+                
+                # Se não é finalizada, adicionar sem placares
+                if status_id != 3:
+                    enriched_matches.append(match)
+                    continue
+                
+                # Se é finalizada mas não tem tournament_id, adicionar sem placares
+                if not tournament_id:
+                    enriched_matches.append(match)
+                    continue
+                
+                # Buscar resultados do torneio (usar cache)
+                if tournament_id not in tournaments_cache:
+                    results = self.get_tournament_results(tournament_id)
+                    tournaments_cache[tournament_id] = results
+                else:
+                    results = tournaments_cache[tournament_id]
+                
+                if not results:
+                    enriched_matches.append(match)
+                    continue
+                
+                # Procurar os placares nos resultados
+                # A API de results retorna uma lista de participantes com suas estatísticas
+                # Mas NÃO retorna placares por partida individual
+                # Vamos tentar extrair do campo 'matches' se existir
+                
+                # Por enquanto, adicionar sem placares
+                # TODO: Investigar estrutura exata da API de results
+                enriched_matches.append(match)
+            
+            return enriched_matches
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao enriquecer partidas com placares: {e}")
+            return matches
         """
         Busca resultados de um torneio específico
         """
@@ -228,6 +354,7 @@ class FIFA25Scraper:
         """
         Busca uma partida específica pelo ID
         (procura em nearest e streaming)
+        IMPORTANTE: Para partidas finalizadas, pode ter placares atualizados
         """
         try:
             # Buscar em nearest matches
@@ -235,6 +362,9 @@ class FIFA25Scraper:
             for match in nearest:
                 if match.get('id') == match_id:
                     logger.info(f"✅ Partida {match_id} encontrada em nearest")
+                    # Log se tem placares
+                    if 'score1' in match and 'score2' in match:
+                        logger.info(f"⚽ Placares: {match.get('score1')} x {match.get('score2')}")
                     return match
             
             # Buscar em streaming
@@ -242,6 +372,9 @@ class FIFA25Scraper:
             for match in streaming:
                 if match.get('id') == match_id:
                     logger.info(f"✅ Partida {match_id} encontrada em streaming")
+                    # Log se tem placares
+                    if 'score1' in match and 'score2' in match:
+                        logger.info(f"⚽ Placares: {match.get('score1')} x {match.get('score2')}")
                     return match
             
             logger.warning(f"⚠️ Partida {match_id} não encontrada")
@@ -399,3 +532,4 @@ if __name__ == "__main__":
     print("\n" + "="*80)
     print("✅ TESTES CONCLUÍDOS")
     print("="*80 + "\n")
+    

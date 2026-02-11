@@ -271,6 +271,31 @@ def run_scraper():
                 except Exception as e:
                     logger.error(f"Erro ao salvar partida streaming {match_data.get('id')}: {e}")
             
+            # 4. RE-BUSCAR partidas finalizadas para pegar placares atualizados
+            finished_without_scores = Match.query.filter(
+                Match.status_id == 3,
+                db.or_(
+                    Match.score1.is_(None),
+                    Match.score2.is_(None)
+                )
+            ).limit(50).all()  # Limitar para não sobrecarregar
+            
+            if finished_without_scores:
+                logger.info(f"🔄 Re-buscando {len(finished_without_scores)} partidas finalizadas sem placares...")
+                
+                for match in finished_without_scores:
+                    try:
+                        # Re-buscar a partida pela API
+                        updated_match_data = scraper.get_match_by_id(match.match_id)
+                        
+                        if updated_match_data:
+                            # Se agora tem placares, atualizar
+                            if 'score1' in updated_match_data and 'score2' in updated_match_data:
+                                save_match(updated_match_data)
+                                logger.info(f"✅ Placares atualizados para partida {match.match_id}")
+                    except Exception as e:
+                        logger.error(f"Erro ao re-buscar partida {match.match_id}: {e}")
+            
             # Atualizar estatísticas
             stats['last_scan'] = datetime.now()
             stats['total_scans'] += 1
@@ -1307,6 +1332,22 @@ def generate_excel_report(matches, filename):
     import pandas as pd
     from openpyxl.styles import PatternFill
     
+    # Se não há partidas, retornar planilha vazia
+    if not matches:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_empty = pd.DataFrame({
+                'Mensagem': ['Nenhuma partida com placares disponível no momento']
+            })
+            df_empty.to_excel(writer, sheet_name='Aviso', index=False)
+        output.seek(0)
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'{filename}.xlsx'
+        )
+    
     # Agrupar partidas por estádio (APENAS com placares válidos)
     matches_by_stadium = {}
     for match in matches:
@@ -1320,6 +1361,22 @@ def generate_excel_report(matches, filename):
             matches_by_stadium[stadium] = []
         
         matches_by_stadium[stadium].append(match)
+    
+    # Se após filtrar não sobrou nada, retornar planilha vazia
+    if not matches_by_stadium:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_empty = pd.DataFrame({
+                'Mensagem': ['Nenhuma partida com placares disponível no momento. Aguarde as partidas finalizarem.']
+            })
+            df_empty.to_excel(writer, sheet_name='Aviso', index=False)
+        output.seek(0)
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'{filename}.xlsx'
+        )
     
     output = BytesIO()
     
