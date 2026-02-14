@@ -493,9 +493,20 @@ def save_match(match_data):
         if not match_id:
             return None
         
-        # LOG: Ver dados recebidos
+        # Score - PEGAR DE DOIS LUGARES DIFERENTES!
+        # Opção 1: score1 e score2 (nearest matches)
         score1 = match_data.get('score1')
         score2 = match_data.get('score2')
+        
+        # Opção 2: participant1.score e participant2.score (streaming matches)
+        if score1 is None:
+            p1_data = match_data.get('participant1', {})
+            score1 = p1_data.get('score')
+        
+        if score2 is None:
+            p2_data = match_data.get('participant2', {})
+            score2 = p2_data.get('score')
+        
         status_id = match_data.get('status_id', 1)
         
         logger.debug(f"💾 Salvando partida {match_id}: status={status_id}, score1={score1}, score2={score2}")
@@ -545,7 +556,7 @@ def save_match(match_data):
         match.player2_team_name = team2.get('token_international', team2.get('token'))
         match.player2_team_logo = team2.get('logo')
         
-        # Score - CRÍTICO!
+        # Score - SALVAR OS PLACARES!
         match.score1 = score1
         match.score2 = score2
         
