@@ -290,11 +290,44 @@ def run_scraper():
                         
                         if updated_match_data:
                             # Se agora tem placares, atualizar
-                            if 'score1' in updated_match_data and 'score2' in updated_match_data:
+                            if 'score1' in updated_match_data or 'participant1' in updated_match_data:
                                 save_match(updated_match_data)
                                 logger.info(f"✅ Placares atualizados para partida {match.match_id}")
                     except Exception as e:
                         logger.error(f"Erro ao re-buscar partida {match.match_id}: {e}")
+            
+            # 5. COLETAR ESTATÍSTICAS DOS TORNEIOS FINALIZADOS
+            try:
+                # Buscar torneios únicos das partidas finalizadas
+                finished_tournaments = db.session.query(Match.tournament_id).filter(
+                    Match.status_id == 3,
+                    Match.tournament_id.isnot(None)
+                ).distinct().limit(10).all()
+                
+                if finished_tournaments:
+                    logger.info(f"📊 Coletando estatísticas de {len(finished_tournaments)} torneios...")
+                    
+                    for (tournament_id,) in finished_tournaments:
+                        try:
+                            # Buscar resultados do torneio
+                            results_data = scraper.get_tournament_results(tournament_id)
+                            
+                            if results_data and 'results' in results_data:
+                                results_list = results_data['results']
+                                logger.info(f"✅ Torneio {tournament_id}: {len(results_list)} jogadores com estatísticas")
+                                
+                                # Aqui você pode salvar as estatísticas se quiser
+                                # Por enquanto só logamos
+                                for player_data in results_list:
+                                    details = player_data.get('details', {})
+                                    participant = player_data.get('participant', {})
+                                    nickname = participant.get('nickname', 'N/A')
+                                    
+                                    logger.debug(f"  📈 {nickname}: {details.get('W')}V {details.get('L')}D {details.get('GF')}GF {details.get('GA')}GA")
+                        except Exception as e:
+                            logger.error(f"Erro ao coletar estatísticas do torneio {tournament_id}: {e}")
+            except Exception as e:
+                logger.error(f"Erro geral ao coletar estatísticas: {e}")
             
             # Atualizar estatísticas
             stats['last_scan'] = datetime.now()

@@ -488,6 +488,26 @@ class FIFA25Scraper:
         except Exception as e:
             logger.error(f"❌ Erro ao formatar match info: {e}")
             return f"Match #{match.get('id', 'N/A')}"
+    
+    def get_tournament_results(self, tournament_id: int) -> Optional[Dict]:
+        """
+        Busca resultados finais de um torneio
+        Retorna estatísticas dos participantes
+        """
+        try:
+            url = self.ENDPOINTS['tournament_results'].format(tournament_id=tournament_id)
+            logger.debug(f"🏆 Buscando resultados do torneio {tournament_id}")
+            results = self._make_request(url)
+            
+            if results:
+                logger.debug(f"✅ Resultados do torneio {tournament_id} obtidos")
+                return results
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar resultados do torneio {tournament_id}: {e}")
+            return None
 
 
 # Teste standalone
@@ -532,4 +552,3 @@ if __name__ == "__main__":
     print("\n" + "="*80)
     print("✅ TESTES CONCLUÍDOS")
     print("="*80 + "\n")
-    
