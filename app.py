@@ -1224,6 +1224,37 @@ def history_recent():
                              error=str(e))
 
 
+@app.route('/statistics/test')
+def statistics_test():
+    """Teste de estatísticas - retorna JSON para debug"""
+    try:
+        logger.info("📊 TEST: Iniciando teste de estatísticas...")
+        
+        # Buscar partidas
+        finished_matches = Match.query.filter_by(status_id=3).limit(10).all()
+        logger.info(f"📊 TEST: {len(finished_matches)} partidas encontradas")
+        
+        result = {
+            'total_matches': len(finished_matches),
+            'samples': []
+        }
+        
+        for match in finished_matches[:5]:
+            result['samples'].append({
+                'id': match.match_id,
+                'player1': match.player1_nickname,
+                'player2': match.player2_nickname,
+                'score1': match.score1,
+                'score2': match.score2,
+                'stadium': match.location_name
+            })
+        
+        return result
+        
+    except Exception as e:
+        return {'error': str(e)}, 500
+
+
 @app.route('/statistics')
 def statistics():
     """Aba Estatísticas - Resumo simples por estádio"""
