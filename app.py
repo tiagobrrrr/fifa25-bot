@@ -1233,29 +1233,33 @@ def statistics():
         # Buscar todas as partidas finalizadas
         finished_matches = Match.query.filter_by(status_id=3).all()
         
+        if not finished_matches:
+            logger.info("📊 Nenhuma partida finalizada encontrada")
+            return render_template('statistics.html', stats_by_stadium={})
+        
         # Organizar por estádio
         for match in finished_matches:
-            stadium = match.location_name or 'Estádio Desconhecido'
-            
-            if stadium not in stats_by_stadium:
-                stats_by_stadium[stadium] = {}
-            
-            # Processar Player 1 (ESTATÍSTICAS)
-            if match.player1_nickname:
-                p1_name = match.player1_nickname
+            try:
+                stadium = match.location_name or 'Estádio Desconhecido'
                 
-                if p1_name not in stats_by_stadium[stadium]:
-                    stats_by_stadium[stadium][p1_name] = {
-                        'name': p1_name,
-                        'wins': 0,
-                        'losses': 0,
-                        'draws': 0,  # EMPATES!
-                        'goals_scored': 0,
-                        'goals_conceded': 0,
-                        'goal_diff': 0
-                    }
+                if stadium not in stats_by_stadium:
+                    stats_by_stadium[stadium] = {}
                 
-                if match.score1 is not None and match.score2 is not None:
+                # Processar Player 1 (ESTATÍSTICAS)
+                if match.player1_nickname and match.score1 is not None and match.score2 is not None:
+                    p1_name = match.player1_nickname
+                    
+                    if p1_name not in stats_by_stadium[stadium]:
+                        stats_by_stadium[stadium][p1_name] = {
+                            'name': p1_name,
+                            'wins': 0,
+                            'losses': 0,
+                            'draws': 0,
+                            'goals_scored': 0,
+                            'goals_conceded': 0,
+                            'goal_diff': 0
+                        }
+                    
                     stats_by_stadium[stadium][p1_name]['goals_scored'] += match.score1
                     stats_by_stadium[stadium][p1_name]['goals_conceded'] += match.score2
                     
@@ -1264,24 +1268,23 @@ def statistics():
                     elif match.score1 < match.score2:
                         stats_by_stadium[stadium][p1_name]['losses'] += 1
                     else:
-                        stats_by_stadium[stadium][p1_name]['draws'] += 1  # EMPATE!
-            
-            # Processar Player 2 (ESTATÍSTICAS)
-            if match.player2_nickname:
-                p2_name = match.player2_nickname
+                        stats_by_stadium[stadium][p1_name]['draws'] += 1
                 
-                if p2_name not in stats_by_stadium[stadium]:
-                    stats_by_stadium[stadium][p2_name] = {
-                        'name': p2_name,
-                        'wins': 0,
-                        'losses': 0,
-                        'draws': 0,  # EMPATES!
-                        'goals_scored': 0,
-                        'goals_conceded': 0,
-                        'goal_diff': 0
-                    }
-                
-                if match.score1 is not None and match.score2 is not None:
+                # Processar Player 2 (ESTATÍSTICAS)
+                if match.player2_nickname and match.score1 is not None and match.score2 is not None:
+                    p2_name = match.player2_nickname
+                    
+                    if p2_name not in stats_by_stadium[stadium]:
+                        stats_by_stadium[stadium][p2_name] = {
+                            'name': p2_name,
+                            'wins': 0,
+                            'losses': 0,
+                            'draws': 0,
+                            'goals_scored': 0,
+                            'goals_conceded': 0,
+                            'goal_diff': 0
+                        }
+                    
                     stats_by_stadium[stadium][p2_name]['goals_scored'] += match.score2
                     stats_by_stadium[stadium][p2_name]['goals_conceded'] += match.score1
                     
@@ -1290,7 +1293,11 @@ def statistics():
                     elif match.score2 < match.score1:
                         stats_by_stadium[stadium][p2_name]['losses'] += 1
                     else:
-                        stats_by_stadium[stadium][p2_name]['draws'] += 1  # EMPATE!
+                        stats_by_stadium[stadium][p2_name]['draws'] += 1
+            
+            except Exception as match_error:
+                logger.error(f"Erro ao processar partida {match.match_id}: {match_error}")
+                continue
         
         # Calcular saldo de gols
         for stadium in stats_by_stadium:
@@ -1301,20 +1308,24 @@ def statistics():
         # Converter para lista ordenada por vitórias
         stats_by_stadium_final = {}
         for stadium in sorted(stats_by_stadium.keys()):
-            stats_by_stadium_final[stadium] = {
-                'players': sorted(
-                    stats_by_stadium[stadium].values(),
-                    key=lambda x: x['wins'],
-                    reverse=True
-                )
-            }
+            players_list = list(stats_by_stadium[stadium].values())
+            if players_list:
+                stats_by_stadium_final[stadium] = {
+                    'players': sorted(
+                        players_list,
+                        key=lambda x: x.get('wins', 0),
+                        reverse=True
+                    )
+                }
         
+        logger.info(f"📊 Estatísticas geradas para {len(stats_by_stadium_final)} estádios")
         return render_template('statistics.html', stats_by_stadium=stats_by_stadium_final)
     
     except Exception as e:
-        logger.error(f"❌ Erro na rota /statistics: {e}")
+        logger.error(f"❌ Erro crítico na rota /statistics: {e}")
         import traceback
         logger.error(traceback.format_exc())
+        # Retornar template vazio mas válido
         return render_template('statistics.html', stats_by_stadium={})
 
 
