@@ -1316,17 +1316,6 @@ def statistics():
         import traceback
         logger.error(traceback.format_exc())
         return render_template('statistics.html', stats_by_stadium={})
-                    reverse=True
-                )
-            }
-        
-        return render_template('statistics.html', stats_by_stadium=stats_by_stadium_final)
-    
-    except Exception as e:
-        logger.error(f"❌ Erro na rota /statistics: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return render_template('statistics.html', stats_by_stadium={})
 
 
 @app.route('/upcoming')
