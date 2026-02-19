@@ -1226,108 +1226,96 @@ def history_recent():
 
 @app.route('/statistics')
 def statistics():
-    """Aba Estatísticas - Pontuação completa por estádio com PLACARES"""
+    """Aba Estatísticas - Resumo simples por estádio"""
     try:
         stats_by_stadium = {}
         
         # Buscar todas as partidas finalizadas
-        finished_matches = Match.query.filter_by(status_id=3).order_by(Match.date.desc()).all()
+        finished_matches = Match.query.filter_by(status_id=3).all()
         
         # Organizar por estádio
         for match in finished_matches:
             stadium = match.location_name or 'Estádio Desconhecido'
             
             if stadium not in stats_by_stadium:
-                stats_by_stadium[stadium] = {
-                    'matches': [],  # LISTA DE PLACARES
-                    'players': {}   # ESTATÍSTICAS
-                }
-            
-            # Adicionar PLACAR DA PARTIDA
-            if match.score1 is not None and match.score2 is not None:
-                winner = 'draw'
-                if match.score1 > match.score2:
-                    winner = match.player1_nickname
-                elif match.score2 > match.score1:
-                    winner = match.player2_nickname
-                
-                stats_by_stadium[stadium]['matches'].append({
-                    'date': to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M') if match.date else 'N/A',
-                    'player1': match.player1_nickname or 'TBD',
-                    'player2': match.player2_nickname or 'TBD',
-                    'score1': match.score1,
-                    'score2': match.score2,
-                    'tournament': match.tournament_token or 'N/A',
-                    'winner': winner
-                })
+                stats_by_stadium[stadium] = {}
             
             # Processar Player 1 (ESTATÍSTICAS)
             if match.player1_nickname:
                 p1_name = match.player1_nickname
                 
-                if p1_name not in stats_by_stadium[stadium]['players']:
-                    stats_by_stadium[stadium]['players'][p1_name] = {
+                if p1_name not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p1_name] = {
                         'name': p1_name,
                         'wins': 0,
                         'losses': 0,
+                        'draws': 0,  # EMPATES!
                         'goals_scored': 0,
                         'goals_conceded': 0,
-                        'goal_diff': 0,
-                        'championships': set()
+                        'goal_diff': 0
                     }
                 
                 if match.score1 is not None and match.score2 is not None:
-                    stats_by_stadium[stadium]['players'][p1_name]['goals_scored'] += match.score1
-                    stats_by_stadium[stadium]['players'][p1_name]['goals_conceded'] += match.score2
+                    stats_by_stadium[stadium][p1_name]['goals_scored'] += match.score1
+                    stats_by_stadium[stadium][p1_name]['goals_conceded'] += match.score2
                     
                     if match.score1 > match.score2:
-                        stats_by_stadium[stadium]['players'][p1_name]['wins'] += 1
-                        if match.tournament_token:
-                            stats_by_stadium[stadium]['players'][p1_name]['championships'].add(match.tournament_token)
+                        stats_by_stadium[stadium][p1_name]['wins'] += 1
                     elif match.score1 < match.score2:
-                        stats_by_stadium[stadium]['players'][p1_name]['losses'] += 1
+                        stats_by_stadium[stadium][p1_name]['losses'] += 1
+                    else:
+                        stats_by_stadium[stadium][p1_name]['draws'] += 1  # EMPATE!
             
             # Processar Player 2 (ESTATÍSTICAS)
             if match.player2_nickname:
                 p2_name = match.player2_nickname
                 
-                if p2_name not in stats_by_stadium[stadium]['players']:
-                    stats_by_stadium[stadium]['players'][p2_name] = {
+                if p2_name not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p2_name] = {
                         'name': p2_name,
                         'wins': 0,
                         'losses': 0,
+                        'draws': 0,  # EMPATES!
                         'goals_scored': 0,
                         'goals_conceded': 0,
-                        'goal_diff': 0,
-                        'championships': set()
+                        'goal_diff': 0
                     }
                 
                 if match.score1 is not None and match.score2 is not None:
-                    stats_by_stadium[stadium]['players'][p2_name]['goals_scored'] += match.score2
-                    stats_by_stadium[stadium]['players'][p2_name]['goals_conceded'] += match.score1
+                    stats_by_stadium[stadium][p2_name]['goals_scored'] += match.score2
+                    stats_by_stadium[stadium][p2_name]['goals_conceded'] += match.score1
                     
                     if match.score2 > match.score1:
-                        stats_by_stadium[stadium]['players'][p2_name]['wins'] += 1
-                        if match.tournament_token:
-                            stats_by_stadium[stadium]['players'][p2_name]['championships'].add(match.tournament_token)
+                        stats_by_stadium[stadium][p2_name]['wins'] += 1
                     elif match.score2 < match.score1:
-                        stats_by_stadium[stadium]['players'][p2_name]['losses'] += 1
+                        stats_by_stadium[stadium][p2_name]['losses'] += 1
+                    else:
+                        stats_by_stadium[stadium][p2_name]['draws'] += 1  # EMPATE!
         
-        # Calcular saldo de gols e converter championships para lista
+        # Calcular saldo de gols
         for stadium in stats_by_stadium:
-            for player_name in stats_by_stadium[stadium]['players']:
-                player = stats_by_stadium[stadium]['players'][player_name]
+            for player_name in stats_by_stadium[stadium]:
+                player = stats_by_stadium[stadium][player_name]
                 player['goal_diff'] = player['goals_scored'] - player['goals_conceded']
-                player['championships'] = sorted(list(player['championships']))
         
-        # Converter players para lista ordenada por vitórias
+        # Converter para lista ordenada por vitórias
         stats_by_stadium_final = {}
         for stadium in sorted(stats_by_stadium.keys()):
             stats_by_stadium_final[stadium] = {
-                'matches': stats_by_stadium[stadium]['matches'],
                 'players': sorted(
-                    stats_by_stadium[stadium]['players'].values(),
+                    stats_by_stadium[stadium].values(),
                     key=lambda x: x['wins'],
+                    reverse=True
+                )
+            }
+        
+        return render_template('statistics.html', stats_by_stadium=stats_by_stadium_final)
+    
+    except Exception as e:
+        logger.error(f"❌ Erro na rota /statistics: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return render_template('statistics.html', stats_by_stadium={})
                     reverse=True
                 )
             }
