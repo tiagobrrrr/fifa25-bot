@@ -987,6 +987,333 @@ def api_send_report():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ==================== GRÁFICOS E CONFRONTOS ====================
+
+def generate_performance_chart(stadium_data, stadium_name):
+    """Gera gráfico de desempenho dos jogadores"""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import base64
+    
+    try:
+        # Preparar dados
+        players = []
+        wins = []
+        losses = []
+        draws = []
+        
+        for player_name, stats in stadium_data.items():
+            players.append(player_name[:10])  # Limitar nome
+            wins.append(stats['wins'])
+            losses.append(stats['losses'])
+            draws.append(stats['draws'])
+        
+        if not players:
+            return None
+        
+        # Criar gráfico
+        fig, ax = plt.subplots(figsize=(12, 6))
+        x = range(len(players))
+        width = 0.25
+        
+        ax.bar([i - width for i in x], wins, width, label='Vitórias', color='#27ae60')
+        ax.bar(x, losses, width, label='Derrotas', color='#e74c3c')
+        ax.bar([i + width for i in x], draws, width, label='Empates', color='#f39c12')
+        
+        ax.set_xlabel('Jogadores', fontsize=12)
+        ax.set_ylabel('Partidas', fontsize=12)
+        ax.set_title(f'Desempenho - {stadium_name}', fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(players, rotation=45, ha='right')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Salvar como base64
+        buffer = BytesIO()
+        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+        buffer.seek(0)
+        image_base64 = base64.b64encode(buffer.read()).decode()
+        plt.close()
+        
+        return f"data:image/png;base64,{image_base64}"
+    
+    except Exception as e:
+        logger.error(f"Erro ao gerar gráfico de desempenho: {e}")
+        return None
+
+
+def generate_goals_chart(stadium_data, stadium_name):
+    """Gera gráfico de gols marcados vs sofridos"""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import base64
+    
+    try:
+        players = []
+        goals_for = []
+        goals_against = []
+        
+        for player_name, stats in stadium_data.items():
+            players.append(player_name[:10])
+            goals_for.append(stats['goals_scored'])
+            goals_against.append(stats['goals_conceded'])
+        
+        if not players:
+            return None
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        x = range(len(players))
+        width = 0.35
+        
+        ax.bar([i - width/2 for i in x], goals_for, width, label='Gols Marcados', color='#3498db')
+        ax.bar([i + width/2 for i in x], goals_against, width, label='Gols Sofridos', color='#e67e22')
+        
+        ax.set_xlabel('Jogadores', fontsize=12)
+        ax.set_ylabel('Gols', fontsize=12)
+        ax.set_title(f'Gols Marcados vs Sofridos - {stadium_name}', fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(players, rotation=45, ha='right')
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis='y')
+        
+        plt.tight_layout()
+        
+        buffer = BytesIO()
+        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+        buffer.seek(0)
+        image_base64 = base64.b64encode(buffer.read()).decode()
+        plt.close()
+        
+        return f"data:image/png;base64,{image_base64}"
+    
+    except Exception as e:
+        logger.error(f"Erro ao gerar gráfico de gols: {e}")
+        return None
+
+
+def generate_winrate_chart(stadium_data, stadium_name):
+    """Gera gráfico de taxa de vitória"""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import base64
+    
+    try:
+        players = []
+        winrates = []
+        
+        for player_name, stats in stadium_data.items():
+            total = stats['wins'] + stats['losses'] + stats['draws']
+            if total > 0:
+                winrate = (stats['wins'] / total) * 100
+                players.append(player_name[:10])
+                winrates.append(winrate)
+        
+        if not players:
+            return None
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        colors = ['#27ae60' if wr >= 50 else '#e74c3c' for wr in winrates]
+        
+        bars = ax.barh(players, winrates, color=colors)
+        
+        ax.set_xlabel('Taxa de Vitória (%)', fontsize=12)
+        ax.set_ylabel('Jogadores', fontsize=12)
+        ax.set_title(f'Taxa de Vitória - {stadium_name}', fontsize=14, fontweight='bold')
+        ax.set_xlim(0, 100)
+        ax.grid(True, alpha=0.3, axis='x')
+        
+        # Adicionar valores nas barras
+        for bar, value in zip(bars, winrates):
+            width = bar.get_width()
+            ax.text(width + 1, bar.get_y() + bar.get_height()/2, 
+                   f'{value:.1f}%', 
+                   ha='left', va='center', fontweight='bold')
+        
+        plt.tight_layout()
+        
+        buffer = BytesIO()
+        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+        buffer.seek(0)
+        image_base64 = base64.b64encode(buffer.read()).decode()
+        plt.close()
+        
+        return f"data:image/png;base64,{image_base64}"
+    
+    except Exception as e:
+        logger.error(f"Erro ao gerar gráfico de winrate: {e}")
+        return None
+
+
+@app.route('/charts')
+def charts_page():
+    """Página de gráficos por estádio"""
+    try:
+        logger.info("📊 Gerando página de gráficos...")
+        
+        # Coletar dados por estádio
+        stats_by_stadium = {}
+        matches = Match.query.filter_by(status_id=3).all()
+        
+        for match in matches:
+            if not (match.score1 is not None and match.score2 is not None):
+                continue
+            
+            stadium = match.location_name or 'Desconhecido'
+            
+            if stadium not in stats_by_stadium:
+                stats_by_stadium[stadium] = {}
+            
+            # Player 1
+            if match.player1_nickname:
+                p1 = match.player1_nickname
+                if p1 not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p1] = {
+                        'wins': 0, 'losses': 0, 'draws': 0,
+                        'goals_scored': 0, 'goals_conceded': 0
+                    }
+                
+                stats_by_stadium[stadium][p1]['goals_scored'] += match.score1
+                stats_by_stadium[stadium][p1]['goals_conceded'] += match.score2
+                
+                if match.score1 > match.score2:
+                    stats_by_stadium[stadium][p1]['wins'] += 1
+                elif match.score1 < match.score2:
+                    stats_by_stadium[stadium][p1]['losses'] += 1
+                else:
+                    stats_by_stadium[stadium][p1]['draws'] += 1
+            
+            # Player 2
+            if match.player2_nickname:
+                p2 = match.player2_nickname
+                if p2 not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p2] = {
+                        'wins': 0, 'losses': 0, 'draws': 0,
+                        'goals_scored': 0, 'goals_conceded': 0
+                    }
+                
+                stats_by_stadium[stadium][p2]['goals_scored'] += match.score2
+                stats_by_stadium[stadium][p2]['goals_conceded'] += match.score1
+                
+                if match.score2 > match.score1:
+                    stats_by_stadium[stadium][p2]['wins'] += 1
+                elif match.score2 < match.score1:
+                    stats_by_stadium[stadium][p2]['losses'] += 1
+                else:
+                    stats_by_stadium[stadium][p2]['draws'] += 1
+        
+        # Gerar gráficos
+        charts_by_stadium = {}
+        for stadium, data in stats_by_stadium.items():
+            if len(data) < 2:  # Precisa de pelo menos 2 jogadores
+                continue
+            
+            charts_by_stadium[stadium] = {
+                'performance_chart': generate_performance_chart(data, stadium),
+                'goals_chart': generate_goals_chart(data, stadium),
+                'winrate_chart': generate_winrate_chart(data, stadium)
+            }
+        
+        logger.info(f"📊 Gráficos gerados para {len(charts_by_stadium)} estádios")
+        return render_template('charts.html', charts_by_stadium=charts_by_stadium)
+    
+    except Exception as e:
+        logger.error(f"❌ Erro na página de gráficos: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return render_template('charts.html', charts_by_stadium={})
+
+
+@app.route('/head-to-head')
+def head_to_head_page():
+    """Página de confrontos diretos"""
+    try:
+        logger.info("⚔️ Gerando página de confrontos...")
+        
+        # Coletar confrontos por estádio
+        confrontos_by_stadium = {}
+        matches = Match.query.filter_by(status_id=3).all()
+        
+        # Dicionário temporário para agrupar confrontos
+        temp_confrontos = {}
+        
+        for match in matches:
+            if not (match.score1 is not None and match.score2 is not None):
+                continue
+            if not (match.player1_nickname and match.player2_nickname):
+                continue
+            
+            stadium = match.location_name or 'Desconhecido'
+            
+            # Ordenar nomes para ter chave única
+            players = tuple(sorted([match.player1_nickname, match.player2_nickname]))
+            key = (stadium, players)
+            
+            if key not in temp_confrontos:
+                temp_confrontos[key] = {
+                    'player1': players[0],
+                    'player2': players[1],
+                    'total': 0,
+                    'p1_wins': 0,
+                    'p2_wins': 0,
+                    'draws': 0,
+                    'p1_goals': 0,
+                    'p2_goals': 0
+                }
+            
+            confronto = temp_confrontos[key]
+            confronto['total'] += 1
+            
+            # Identificar quem é quem
+            if match.player1_nickname == players[0]:
+                p1_score = match.score1
+                p2_score = match.score2
+            else:
+                p1_score = match.score2
+                p2_score = match.score1
+            
+            confronto['p1_goals'] += p1_score
+            confronto['p2_goals'] += p2_score
+            
+            if p1_score > p2_score:
+                confronto['p1_wins'] += 1
+            elif p2_score > p1_score:
+                confronto['p2_wins'] += 1
+            else:
+                confronto['draws'] += 1
+        
+        # Organizar por estádio
+        for (stadium, players), data in temp_confrontos.items():
+            if stadium not in confrontos_by_stadium:
+                confrontos_by_stadium[stadium] = []
+            
+            # Calcular médias
+            data['p1_avg_goals'] = data['p1_goals'] / data['total'] if data['total'] > 0 else 0
+            data['p2_avg_goals'] = data['p2_goals'] / data['total'] if data['total'] > 0 else 0
+            
+            confrontos_by_stadium[stadium].append(data)
+        
+        # Ordenar confrontos por total de partidas
+        for stadium in confrontos_by_stadium:
+            confrontos_by_stadium[stadium].sort(key=lambda x: x['total'], reverse=True)
+        
+        logger.info(f"⚔️ Confrontos gerados para {len(confrontos_by_stadium)} estádios")
+        return render_template('head_to_head.html', confrontos_by_stadium=confrontos_by_stadium)
+    
+    except Exception as e:
+        logger.error(f"❌ Erro na página de confrontos: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return render_template('head_to_head.html', confrontos_by_stadium={})
+
+
 # ==================== SCHEDULER ====================
 
 def setup_scheduler():
@@ -1702,6 +2029,228 @@ def download_players():
     output.seek(0)
     
     return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='FIFA25_Estatisticas_Jogadores.xlsx')
+
+
+@app.route('/api/download/charts')
+def download_charts():
+    """Download planilha de estatísticas para gráficos"""
+    import pandas as pd
+    
+    try:
+        logger.info("📊 Gerando planilha de gráficos...")
+        
+        # Coletar dados por estádio
+        stats_by_stadium = {}
+        matches = Match.query.filter_by(status_id=3).all()
+        
+        for match in matches:
+            if not (match.score1 is not None and match.score2 is not None):
+                continue
+            
+            stadium = match.location_name or 'Desconhecido'
+            
+            if stadium not in stats_by_stadium:
+                stats_by_stadium[stadium] = {}
+            
+            # Player 1
+            if match.player1_nickname:
+                p1 = match.player1_nickname
+                if p1 not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p1] = {
+                        'Jogador': p1,
+                        'Vitórias': 0,
+                        'Derrotas': 0,
+                        'Empates': 0,
+                        'Gols Marcados': 0,
+                        'Gols Sofridos': 0,
+                        'Saldo': 0,
+                        'Total Partidas': 0,
+                        'Taxa Vitória (%)': 0
+                    }
+                
+                stats = stats_by_stadium[stadium][p1]
+                stats['Gols Marcados'] += match.score1
+                stats['Gols Sofridos'] += match.score2
+                stats['Total Partidas'] += 1
+                
+                if match.score1 > match.score2:
+                    stats['Vitórias'] += 1
+                elif match.score1 < match.score2:
+                    stats['Derrotas'] += 1
+                else:
+                    stats['Empates'] += 1
+            
+            # Player 2
+            if match.player2_nickname:
+                p2 = match.player2_nickname
+                if p2 not in stats_by_stadium[stadium]:
+                    stats_by_stadium[stadium][p2] = {
+                        'Jogador': p2,
+                        'Vitórias': 0,
+                        'Derrotas': 0,
+                        'Empates': 0,
+                        'Gols Marcados': 0,
+                        'Gols Sofridos': 0,
+                        'Saldo': 0,
+                        'Total Partidas': 0,
+                        'Taxa Vitória (%)': 0
+                    }
+                
+                stats = stats_by_stadium[stadium][p2]
+                stats['Gols Marcados'] += match.score2
+                stats['Gols Sofridos'] += match.score1
+                stats['Total Partidas'] += 1
+                
+                if match.score2 > match.score1:
+                    stats['Vitórias'] += 1
+                elif match.score2 < match.score1:
+                    stats['Derrotas'] += 1
+                else:
+                    stats['Empates'] += 1
+        
+        # Calcular saldo e taxa de vitória
+        for stadium in stats_by_stadium:
+            for player_data in stats_by_stadium[stadium].values():
+                player_data['Saldo'] = player_data['Gols Marcados'] - player_data['Gols Sofridos']
+                if player_data['Total Partidas'] > 0:
+                    player_data['Taxa Vitória (%)'] = round((player_data['Vitórias'] / player_data['Total Partidas']) * 100, 1)
+        
+        # Criar Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for stadium in sorted(stats_by_stadium.keys()):
+                data = list(stats_by_stadium[stadium].values())
+                if data:
+                    df = pd.DataFrame(data)
+                    df = df.sort_values('Vitórias', ascending=False)
+                    
+                    # Nome da aba (máximo 31 caracteres)
+                    sheet_name = stadium[:31]
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        output.seek(0)
+        logger.info("📊 Planilha de gráficos gerada com sucesso")
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'FIFA25_Graficos_{datetime.now().strftime("%Y%m%d")}.xlsx'
+        )
+    
+    except Exception as e:
+        logger.error(f"❌ Erro ao gerar planilha de gráficos: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/download/head-to-head')
+def download_head_to_head():
+    """Download planilha de confrontos diretos"""
+    import pandas as pd
+    
+    try:
+        logger.info("⚔️ Gerando planilha de confrontos...")
+        
+        # Coletar confrontos por estádio
+        confrontos_data = {}
+        matches = Match.query.filter_by(status_id=3).all()
+        
+        temp_confrontos = {}
+        
+        for match in matches:
+            if not (match.score1 is not None and match.score2 is not None):
+                continue
+            if not (match.player1_nickname and match.player2_nickname):
+                continue
+            
+            stadium = match.location_name or 'Desconhecido'
+            players = tuple(sorted([match.player1_nickname, match.player2_nickname]))
+            key = (stadium, players)
+            
+            if key not in temp_confrontos:
+                temp_confrontos[key] = {
+                    'Estádio': stadium,
+                    'Jogador 1': players[0],
+                    'Jogador 2': players[1],
+                    'Total Partidas': 0,
+                    f'Vitórias {players[0]}': 0,
+                    f'Vitórias {players[1]}': 0,
+                    'Empates': 0,
+                    f'Total Gols {players[0]}': 0,
+                    f'Total Gols {players[1]}': 0,
+                    f'Média Gols/Partida {players[0]}': 0,
+                    f'Média Gols/Partida {players[1]}': 0
+                }
+            
+            confronto = temp_confrontos[key]
+            confronto['Total Partidas'] += 1
+            
+            # Identificar quem é quem
+            if match.player1_nickname == players[0]:
+                p1_score = match.score1
+                p2_score = match.score2
+            else:
+                p1_score = match.score2
+                p2_score = match.score1
+            
+            confronto[f'Total Gols {players[0]}'] += p1_score
+            confronto[f'Total Gols {players[1]}'] += p2_score
+            
+            if p1_score > p2_score:
+                confronto[f'Vitórias {players[0]}'] += 1
+            elif p2_score > p1_score:
+                confronto[f'Vitórias {players[1]}'] += 1
+            else:
+                confronto['Empates'] += 1
+        
+        # Calcular médias e organizar por estádio
+        for (stadium, players), data in temp_confrontos.items():
+            if data['Total Partidas'] > 0:
+                data[f'Média Gols/Partida {players[0]}'] = round(data[f'Total Gols {players[0]}'] / data['Total Partidas'], 2)
+                data[f'Média Gols/Partida {players[1]}'] = round(data[f'Total Gols {players[1]}'] / data['Total Partidas'], 2)
+            
+            if stadium not in confrontos_data:
+                confrontos_data[stadium] = []
+            confrontos_data[stadium].append(data)
+        
+        # Criar Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for stadium in sorted(confrontos_data.keys()):
+                df = pd.DataFrame(confrontos_data[stadium])
+                df = df.sort_values('Total Partidas', ascending=False)
+                
+                # Nome da aba (máximo 31 caracteres)
+                sheet_name = stadium[:31]
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                # Ajustar largura das colunas
+                worksheet = writer.sheets[sheet_name]
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(cell.value)
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        output.seek(0)
+        logger.info("⚔️ Planilha de confrontos gerada com sucesso")
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'FIFA25_Confrontos_{datetime.now().strftime("%Y%m%d")}.xlsx'
+        )
+    
+    except Exception as e:
+        logger.error(f"❌ Erro ao gerar planilha de confrontos: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/matches/count')

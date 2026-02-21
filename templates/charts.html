@@ -1,0 +1,136 @@
+{% extends "layout.html" %}
+
+{% block title %}Gráficos - FIFA 25 Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .charts-header {
+        background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    
+    .stadium-charts {
+        background: white;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+    }
+    
+    .stadium-title {
+        padding: 15px 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 25px;
+        font-size: 1.3em;
+        font-weight: bold;
+    }
+    
+    .chart-container {
+        margin: 30px 0;
+    }
+    
+    .chart-image {
+        width: 100%;
+        max-width: 1000px;
+        border-radius: 10px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        margin: 20px auto;
+        display: block;
+    }
+    
+    .chart-title {
+        font-size: 1.2em;
+        font-weight: bold;
+        color: #333;
+        margin: 20px 0 15px 0;
+        padding-left: 10px;
+        border-left: 4px solid #3498db;
+    }
+    
+    .download-section {
+        text-align: center;
+        margin: 30px 0;
+    }
+    
+    .download-btn {
+        display: inline-block;
+        padding: 15px 40px;
+        background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+        color: white;
+        text-decoration: none;
+        border-radius: 30px;
+        font-weight: bold;
+        font-size: 1.1em;
+        transition: all 0.3s;
+        box-shadow: 0 5px 15px rgba(39, 174, 96, 0.3);
+    }
+    
+    .download-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(39, 174, 96, 0.4);
+    }
+    
+    .no-data {
+        text-align: center;
+        padding: 60px;
+        color: #999;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="charts-header">
+    <h1>📊 Gráficos de Desempenho</h1>
+    <p>Visualizações detalhadas por estádio</p>
+</div>
+
+<div class="download-section">
+    <a href="/api/download/charts" class="download-btn">
+        📥 Baixar Planilha de Gráficos
+    </a>
+</div>
+
+{% if charts_by_stadium %}
+    {% for stadium, charts in charts_by_stadium.items() %}
+    <div class="stadium-charts">
+        <div class="stadium-title">
+            📍 {{ stadium }}
+        </div>
+        
+        {% if charts.performance_chart %}
+        <div class="chart-container">
+            <div class="chart-title">🏆 Desempenho dos Jogadores</div>
+            <img src="{{ charts.performance_chart }}" class="chart-image" alt="Gráfico de Desempenho">
+        </div>
+        {% endif %}
+        
+        {% if charts.goals_chart %}
+        <div class="chart-container">
+            <div class="chart-title">⚽ Gols Marcados vs Sofridos</div>
+            <img src="{{ charts.goals_chart }}" class="chart-image" alt="Gráfico de Gols">
+        </div>
+        {% endif %}
+        
+        {% if charts.winrate_chart %}
+        <div class="chart-container">
+            <div class="chart-title">📈 Taxa de Vitória (%)</div>
+            <img src="{{ charts.winrate_chart }}" class="chart-image" alt="Gráfico de Taxa de Vitória">
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="stadium-charts">
+        <div class="no-data">
+            <h2>📊 Dados insuficientes para gerar gráficos</h2>
+            <p>Aguarde mais partidas serem finalizadas</p>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

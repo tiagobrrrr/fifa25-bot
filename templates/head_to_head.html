@@ -1,0 +1,185 @@
+{% extends "layout.html" %}
+
+{% block title %}Confrontos Diretos - FIFA 25 Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .h2h-header {
+        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    
+    .stadium-section {
+        background: white;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+    }
+    
+    .stadium-title {
+        padding: 15px 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 25px;
+        font-size: 1.3em;
+        font-weight: bold;
+    }
+    
+    .confronto-card {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 15px;
+        border-left: 4px solid #e74c3c;
+    }
+    
+    .confronto-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        font-size: 1.2em;
+        font-weight: bold;
+    }
+    
+    .vs-badge {
+        background: #e74c3c;
+        color: white;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 0.9em;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+    
+    .stat-item {
+        text-align: center;
+        padding: 15px;
+        background: white;
+        border-radius: 8px;
+    }
+    
+    .stat-label {
+        font-size: 0.85em;
+        color: #666;
+        margin-bottom: 5px;
+    }
+    
+    .stat-value {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .wins { color: #27ae60; }
+    .losses { color: #e74c3c; }
+    .draws { color: #f39c12; }
+    
+    .download-section {
+        text-align: center;
+        margin: 30px 0;
+    }
+    
+    .download-btn {
+        display: inline-block;
+        padding: 15px 40px;
+        background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+        color: white;
+        text-decoration: none;
+        border-radius: 30px;
+        font-weight: bold;
+        font-size: 1.1em;
+        transition: all 0.3s;
+        box-shadow: 0 5px 15px rgba(39, 174, 96, 0.3);
+    }
+    
+    .download-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(39, 174, 96, 0.4);
+    }
+    
+    .no-data {
+        text-align: center;
+        padding: 60px;
+        color: #999;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="h2h-header">
+    <h1>⚔️ Confrontos Diretos</h1>
+    <p>Histórico completo de confrontos entre jogadores</p>
+</div>
+
+<div class="download-section">
+    <a href="/api/download/head-to-head" class="download-btn">
+        📥 Baixar Planilha de Confrontos
+    </a>
+</div>
+
+{% if confrontos_by_stadium %}
+    {% for stadium, confrontos in confrontos_by_stadium.items() %}
+    <div class="stadium-section">
+        <div class="stadium-title">
+            📍 {{ stadium }}
+        </div>
+        
+        {% for confronto in confrontos %}
+        <div class="confronto-card">
+            <div class="confronto-header">
+                <span>{{ confronto.player1 }}</span>
+                <span class="vs-badge">VS</span>
+                <span>{{ confronto.player2 }}</span>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-label">Total Partidas</div>
+                    <div class="stat-value">{{ confronto.total }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Vitórias {{ confronto.player1 }}</div>
+                    <div class="stat-value wins">{{ confronto.p1_wins }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Empates</div>
+                    <div class="stat-value draws">{{ confronto.draws }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Vitórias {{ confronto.player2 }}</div>
+                    <div class="stat-value losses">{{ confronto.p2_wins }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Média Gols {{ confronto.player1 }}</div>
+                    <div class="stat-value">{{ "%.2f"|format(confronto.p1_avg_goals) }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Média Gols {{ confronto.player2 }}</div>
+                    <div class="stat-value">{{ "%.2f"|format(confronto.p2_avg_goals) }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="stadium-section">
+        <div class="no-data">
+            <h2>⚔️ Nenhum confronto registrado ainda</h2>
+            <p>Aguarde mais partidas serem finalizadas</p>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
