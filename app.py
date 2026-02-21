@@ -1156,11 +1156,13 @@ def generate_winrate_chart(stadium_data, stadium_name):
 def charts_page():
     """Página de gráficos por estádio"""
     try:
-        logger.info("📊 Gerando página de gráficos...")
+        logger.info("📊 INICIANDO geração de gráficos...")
         
         # Coletar dados por estádio
         stats_by_stadium = {}
-        matches = Match.query.filter_by(status_id=3).all()
+        matches = Match.query.filter_by(status_id=3).limit(500).all()  # Limitar consulta
+        
+        logger.info(f"📊 Processando {len(matches)} partidas...")
         
         for match in matches:
             if not (match.score1 is not None and match.score2 is not None):
@@ -1209,23 +1211,36 @@ def charts_page():
                 else:
                     stats_by_stadium[stadium][p2]['draws'] += 1
         
-        # Gerar gráficos
+        logger.info(f"📊 Dados coletados para {len(stats_by_stadium)} estádios")
+        
+        # Gerar gráficos (LIMITAR a top 10 jogadores por estádio)
         charts_by_stadium = {}
         for stadium, data in stats_by_stadium.items():
             if len(data) < 2:  # Precisa de pelo menos 2 jogadores
+                logger.info(f"📊 Pulando {stadium} - poucos jogadores")
                 continue
             
-            charts_by_stadium[stadium] = {
-                'performance_chart': generate_performance_chart(data, stadium),
-                'goals_chart': generate_goals_chart(data, stadium),
-                'winrate_chart': generate_winrate_chart(data, stadium)
-            }
+            # Limitar a top 10 jogadores por vitórias
+            top_players = dict(sorted(data.items(), key=lambda x: x[1]['wins'], reverse=True)[:10])
+            
+            logger.info(f"📊 Gerando gráficos para {stadium} ({len(top_players)} jogadores)...")
+            
+            try:
+                charts_by_stadium[stadium] = {
+                    'performance_chart': generate_performance_chart(top_players, stadium),
+                    'goals_chart': generate_goals_chart(top_players, stadium),
+                    'winrate_chart': generate_winrate_chart(top_players, stadium)
+                }
+                logger.info(f"✅ Gráficos gerados para {stadium}")
+            except Exception as chart_error:
+                logger.error(f"❌ Erro ao gerar gráficos para {stadium}: {chart_error}")
+                continue
         
-        logger.info(f"📊 Gráficos gerados para {len(charts_by_stadium)} estádios")
+        logger.info(f"📊 CONCLUÍDO: Gráficos gerados para {len(charts_by_stadium)} estádios")
         return render_template('charts.html', charts_by_stadium=charts_by_stadium)
     
     except Exception as e:
-        logger.error(f"❌ Erro na página de gráficos: {e}")
+        logger.error(f"❌ ERRO CRÍTICO na página de gráficos: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return render_template('charts.html', charts_by_stadium={})
@@ -1235,11 +1250,13 @@ def charts_page():
 def head_to_head_page():
     """Página de confrontos diretos"""
     try:
-        logger.info("⚔️ Gerando página de confrontos...")
+        logger.info("⚔️ INICIANDO geração de confrontos...")
         
         # Coletar confrontos por estádio
         confrontos_by_stadium = {}
-        matches = Match.query.filter_by(status_id=3).all()
+        matches = Match.query.filter_by(status_id=3).limit(500).all()  # Limitar consulta
+        
+        logger.info(f"⚔️ Processando {len(matches)} partidas...")
         
         # Dicionário temporário para agrupar confrontos
         temp_confrontos = {}
@@ -1289,7 +1306,9 @@ def head_to_head_page():
             else:
                 confronto['draws'] += 1
         
-        # Organizar por estádio
+        logger.info(f"⚔️ Total de {len(temp_confrontos)} confrontos únicos encontrados")
+        
+        # Organizar por estádio (LIMITAR a top 15 confrontos por estádio)
         for (stadium, players), data in temp_confrontos.items():
             if stadium not in confrontos_by_stadium:
                 confrontos_by_stadium[stadium] = []
@@ -1300,15 +1319,17 @@ def head_to_head_page():
             
             confrontos_by_stadium[stadium].append(data)
         
-        # Ordenar confrontos por total de partidas
+        # Ordenar e limitar confrontos por estádio
         for stadium in confrontos_by_stadium:
             confrontos_by_stadium[stadium].sort(key=lambda x: x['total'], reverse=True)
+            confrontos_by_stadium[stadium] = confrontos_by_stadium[stadium][:15]  # Top 15 por estádio
+            logger.info(f"⚔️ {stadium}: {len(confrontos_by_stadium[stadium])} confrontos")
         
-        logger.info(f"⚔️ Confrontos gerados para {len(confrontos_by_stadium)} estádios")
+        logger.info(f"⚔️ CONCLUÍDO: Confrontos gerados para {len(confrontos_by_stadium)} estádios")
         return render_template('head_to_head.html', confrontos_by_stadium=confrontos_by_stadium)
     
     except Exception as e:
-        logger.error(f"❌ Erro na página de confrontos: {e}")
+        logger.error(f"❌ ERRO CRÍTICO na página de confrontos: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return render_template('head_to_head.html', confrontos_by_stadium={})
