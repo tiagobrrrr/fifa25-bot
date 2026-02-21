@@ -1098,13 +1098,23 @@ def calculate_player_stats(player_id):
 @app.route('/matches')
 def live_matches():
     """Página de partidas ao vivo"""
-    matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).all()
+    try:
+        logger.info("📄 ROTA /matches acessada")
+        matches_list = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).all()
+        logger.info(f"📄 Encontradas {len(matches_list)} partidas ao vivo")
+        
+        for match in matches_list:
+            if match.date:
+                match.date_brasilia = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
+        
+        logger.info(f"📄 Renderizando template matches.html com {len(matches_list)} partidas")
+        return render_template('matches.html', matches=matches_list, total_matches=len(matches_list))
     
-    for match in matches_list:
-        if match.date:
-            match.date_brasilia = to_brasilia_time(match.date).strftime('%d/%m/%Y %H:%M')
-    
-    return render_template('matches.html', matches=matches_list, total_matches=len(matches_list))
+    except Exception as e:
+        logger.error(f"❌ Erro na rota /matches: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return f"Erro ao carregar partidas: {str(e)}", 500
 
 
 @app.route('/players')
