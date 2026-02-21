@@ -930,8 +930,27 @@ def api_stats():
 @app.route('/api/matches/live')
 def api_live_matches():
     """Retorna partidas ao vivo"""
-    matches = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).limit(20).all()
-    return jsonify([m.to_dict() for m in matches])
+    try:
+        logger.info("🔴 API: Buscando partidas ao vivo...")
+        matches = Match.query.filter_by(status_id=2).order_by(Match.date.desc()).limit(20).all()
+        logger.info(f"🔴 API: Encontradas {len(matches)} partidas ao vivo")
+        
+        result = []
+        for m in matches:
+            try:
+                result.append(m.to_dict())
+            except Exception as e:
+                logger.error(f"❌ Erro ao converter partida {m.match_id}: {e}")
+                continue
+        
+        logger.info(f"🔴 API: Retornando {len(result)} partidas")
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"❌ Erro na API /api/matches/live: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/matches/upcoming')
