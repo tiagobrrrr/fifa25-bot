@@ -26,10 +26,28 @@ app = Flask(__name__)
 
 # Configurações
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///fifa25.db')
-if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
-    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
+# Configuração do banco de dados
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if not DATABASE_URL:
+    logger.error("❌ ATENÇÃO: DATABASE_URL não configurada! Usando SQLite (NÃO RECOMENDADO PARA PRODUÇÃO)")
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///fifa25.db'
+else:
+    # Corrigir URL do Heroku/Render (postgres:// -> postgresql://)
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+    logger.info(f"✅ PostgreSQL configurado: {DATABASE_URL[:30]}...")
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 10,
+    'pool_recycle': 3600,
+    'pool_pre_ping': True,
+    'connect_args': {
+        'connect_timeout': 10
+    }
+}
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 300,
@@ -239,6 +257,9 @@ def run_scraper():
     
     with app.app_context():
         try:
+            # Remover qualquer sessão pendente
+            db.session.rollback()
+            
             stats['status'] = 'Executando scraper...'
             logger.info("🔄 Iniciando varredura...")
             
