@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 
-{% block title %}Gráficos - FIFA 25 Bot{% endblock %}
+{% block title %}Estatísticas Visuais - FIFA 25 Bot{% endblock %}
 
 {% block extra_styles %}
 <style>
@@ -13,7 +13,7 @@
         margin-bottom: 30px;
     }
     
-    .stadium-charts {
+    .stadium-section {
         background: white;
         padding: 30px;
         border-radius: 15px;
@@ -31,27 +31,49 @@
         font-weight: bold;
     }
     
-    .chart-container {
-        margin: 30px 0;
-    }
-    
-    .chart-image {
+    .stats-table {
         width: 100%;
-        max-width: 1000px;
-        border-radius: 10px;
-        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-        margin: 20px auto;
-        display: block;
+        border-collapse: collapse;
+        margin: 20px 0;
     }
     
-    .chart-title {
-        font-size: 1.2em;
+    .stats-table thead {
+        background: #f8f9fa;
+    }
+    
+    .stats-table th {
+        padding: 15px;
+        text-align: center;
+        font-weight: bold;
+        color: #667eea;
+        border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .stats-table th:first-child {
+        text-align: left;
+    }
+    
+    .stats-table td {
+        padding: 12px 15px;
+        border-bottom: 1px solid #f0f0f0;
+        text-align: center;
+    }
+    
+    .stats-table td:first-child {
+        text-align: left;
         font-weight: bold;
         color: #333;
-        margin: 20px 0 15px 0;
-        padding-left: 10px;
-        border-left: 4px solid #3498db;
     }
+    
+    .stats-table tr:hover {
+        background: #f8f9fa;
+    }
+    
+    .wins { color: #27ae60; font-weight: bold; }
+    .losses { color: #e74c3c; font-weight: bold; }
+    .draws { color: #f39c12; font-weight: bold; }
+    .win-rate-high { color: #27ae60; font-weight: bold; }
+    .win-rate-low { color: #e74c3c; font-weight: bold; }
     
     .download-section {
         text-align: center;
@@ -86,50 +108,64 @@
 
 {% block content %}
 <div class="charts-header">
-    <h1>📊 Gráficos de Desempenho</h1>
-    <p>Visualizações detalhadas por estádio</p>
+    <h1>📊 Estatísticas Visuais</h1>
+    <p>Desempenho detalhado dos jogadores por estádio</p>
 </div>
 
 <div class="download-section">
     <a href="/api/download/charts" class="download-btn">
-        📥 Baixar Planilha de Gráficos
+        📥 Baixar Planilha Completa
     </a>
 </div>
 
 {% if charts_by_stadium %}
-    {% for stadium, charts in charts_by_stadium.items() %}
-    <div class="stadium-charts">
+    {% for stadium, data in charts_by_stadium.items() %}
+    <div class="stadium-section">
         <div class="stadium-title">
             📍 {{ stadium }}
         </div>
         
-        {% if charts.performance_chart %}
-        <div class="chart-container">
-            <div class="chart-title">🏆 Desempenho dos Jogadores</div>
-            <img src="{{ charts.performance_chart }}" class="chart-image" alt="Gráfico de Desempenho">
-        </div>
-        {% endif %}
-        
-        {% if charts.goals_chart %}
-        <div class="chart-container">
-            <div class="chart-title">⚽ Gols Marcados vs Sofridos</div>
-            <img src="{{ charts.goals_chart }}" class="chart-image" alt="Gráfico de Gols">
-        </div>
-        {% endif %}
-        
-        {% if charts.winrate_chart %}
-        <div class="chart-container">
-            <div class="chart-title">📈 Taxa de Vitória (%)</div>
-            <img src="{{ charts.winrate_chart }}" class="chart-image" alt="Gráfico de Taxa de Vitória">
-        </div>
+        {% if data.players %}
+        <table class="stats-table">
+            <thead>
+                <tr>
+                    <th>Jogador</th>
+                    <th>Vitórias</th>
+                    <th>Derrotas</th>
+                    <th>Empates</th>
+                    <th>Partidas</th>
+                    <th>Taxa Vitória</th>
+                    <th>Gols/Partida</th>
+                    <th>Gols Marcados</th>
+                    <th>Gols Sofridos</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for player in data.players %}
+                <tr>
+                    <td>{{ player.name }}</td>
+                    <td class="wins">{{ player.wins }}</td>
+                    <td class="losses">{{ player.losses }}</td>
+                    <td class="draws">{{ player.draws }}</td>
+                    <td>{{ player.total_matches }}</td>
+                    <td class="{% if player.win_rate >= 50 %}win-rate-high{% else %}win-rate-low{% endif %}">
+                        {{ player.win_rate }}%
+                    </td>
+                    <td>{{ player.avg_goals }}</td>
+                    <td>{{ player.goals_scored }}</td>
+                    <td>{{ player.goals_conceded }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         {% endif %}
     </div>
     {% endfor %}
 {% else %}
-    <div class="stadium-charts">
+    <div class="stadium-section">
         <div class="no-data">
-            <h2>📊 Dados insuficientes para gerar gráficos</h2>
-            <p>Aguarde mais partidas serem finalizadas</p>
+            <h2>📊 Dados insuficientes</h2>
+            <p>Aguarde mais partidas serem finalizadas para ver as estatísticas</p>
         </div>
     </div>
 {% endif %}

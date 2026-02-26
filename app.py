@@ -1175,13 +1175,13 @@ def generate_winrate_chart(stadium_data, stadium_name):
 
 @app.route('/charts')
 def charts_page():
-    """Página de gráficos por estádio"""
+    """Página de estatísticas visuais por estádio - TABELAS SIMPLES"""
     try:
-        logger.info("📊 INICIANDO geração de gráficos...")
+        logger.info("📊 INICIANDO geração de estatísticas para gráficos...")
         
         # Coletar dados por estádio
         stats_by_stadium = {}
-        matches = Match.query.filter_by(status_id=3).limit(500).all()  # Limitar consulta
+        matches = Match.query.filter_by(status_id=3).order_by(Match.date.desc()).limit(300).all()
         
         logger.info(f"📊 Processando {len(matches)} partidas...")
         
@@ -1199,12 +1199,17 @@ def charts_page():
                 p1 = match.player1_nickname
                 if p1 not in stats_by_stadium[stadium]:
                     stats_by_stadium[stadium][p1] = {
+                        'name': p1,
                         'wins': 0, 'losses': 0, 'draws': 0,
-                        'goals_scored': 0, 'goals_conceded': 0
+                        'goals_scored': 0, 'goals_conceded': 0,
+                        'total_matches': 0,
+                        'win_rate': 0,
+                        'avg_goals': 0
                     }
                 
                 stats_by_stadium[stadium][p1]['goals_scored'] += match.score1
                 stats_by_stadium[stadium][p1]['goals_conceded'] += match.score2
+                stats_by_stadium[stadium][p1]['total_matches'] += 1
                 
                 if match.score1 > match.score2:
                     stats_by_stadium[stadium][p1]['wins'] += 1
@@ -1218,12 +1223,17 @@ def charts_page():
                 p2 = match.player2_nickname
                 if p2 not in stats_by_stadium[stadium]:
                     stats_by_stadium[stadium][p2] = {
+                        'name': p2,
                         'wins': 0, 'losses': 0, 'draws': 0,
-                        'goals_scored': 0, 'goals_conceded': 0
+                        'goals_scored': 0, 'goals_conceded': 0,
+                        'total_matches': 0,
+                        'win_rate': 0,
+                        'avg_goals': 0
                     }
                 
                 stats_by_stadium[stadium][p2]['goals_scored'] += match.score2
                 stats_by_stadium[stadium][p2]['goals_conceded'] += match.score1
+                stats_by_stadium[stadium][p2]['total_matches'] += 1
                 
                 if match.score2 > match.score1:
                     stats_by_stadium[stadium][p2]['wins'] += 1
@@ -1234,30 +1244,29 @@ def charts_page():
         
         logger.info(f"📊 Dados coletados para {len(stats_by_stadium)} estádios")
         
-        # Gerar gráficos (LIMITAR a top 10 jogadores por estádio)
+        # Calcular métricas (SEM GERAR GRÁFICOS DE IMAGEM)
         charts_by_stadium = {}
         for stadium, data in stats_by_stadium.items():
-            if len(data) < 2:  # Precisa de pelo menos 2 jogadores
-                logger.info(f"📊 Pulando {stadium} - poucos jogadores")
+            if len(data) < 1:
                 continue
             
-            # Limitar a top 10 jogadores por vitórias
-            top_players = dict(sorted(data.items(), key=lambda x: x[1]['wins'], reverse=True)[:10])
+            # Calcular taxa de vitória e média de gols
+            for player_stats in data.values():
+                total = player_stats['total_matches']
+                if total > 0:
+                    player_stats['win_rate'] = round((player_stats['wins'] / total) * 100, 1)
+                    player_stats['avg_goals'] = round(player_stats['goals_scored'] / total, 2)
             
-            logger.info(f"📊 Gerando gráficos para {stadium} ({len(top_players)} jogadores)...")
+            # Ordenar por vitórias (top 15)
+            top_players = sorted(data.values(), key=lambda x: x['wins'], reverse=True)[:15]
             
-            try:
-                charts_by_stadium[stadium] = {
-                    'performance_chart': generate_performance_chart(top_players, stadium),
-                    'goals_chart': generate_goals_chart(top_players, stadium),
-                    'winrate_chart': generate_winrate_chart(top_players, stadium)
-                }
-                logger.info(f"✅ Gráficos gerados para {stadium}")
-            except Exception as chart_error:
-                logger.error(f"❌ Erro ao gerar gráficos para {stadium}: {chart_error}")
-                continue
+            charts_by_stadium[stadium] = {
+                'players': top_players
+            }
+            
+            logger.info(f"📊 {stadium}: {len(top_players)} jogadores processados")
         
-        logger.info(f"📊 CONCLUÍDO: Gráficos gerados para {len(charts_by_stadium)} estádios")
+        logger.info(f"📊 CONCLUÍDO: Estatísticas geradas para {len(charts_by_stadium)} estádios")
         return render_template('charts.html', charts_by_stadium=charts_by_stadium)
     
     except Exception as e:
@@ -1930,30 +1939,26 @@ def generate_excel_report(matches, filename):
             if match.player1_nickname and match.score1 is not None and match.score2 is not None:
                 p1 = match.player1_nickname
                 if p1 not in stats_by_player:
-                    stats_by_player[p1] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0, 'championships': set()}
+                    stats_by_player[p1] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0}
                 
                 stats_by_player[p1]['goals_for'] += match.score1
                 stats_by_player[p1]['goals_against'] += match.score2
                 
                 if match.score1 > match.score2:
                     stats_by_player[p1]['wins'] += 1
-                    if match.tournament_token:
-                        stats_by_player[p1]['championships'].add(match.tournament_token)
                 elif match.score1 < match.score2:
                     stats_by_player[p1]['losses'] += 1
             
             if match.player2_nickname and match.score1 is not None and match.score2 is not None:
                 p2 = match.player2_nickname
                 if p2 not in stats_by_player:
-                    stats_by_player[p2] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0, 'championships': set()}
+                    stats_by_player[p2] = {'wins': 0, 'losses': 0, 'goals_for': 0, 'goals_against': 0}
                 
                 stats_by_player[p2]['goals_for'] += match.score2
                 stats_by_player[p2]['goals_against'] += match.score1
                 
                 if match.score2 > match.score1:
                     stats_by_player[p2]['wins'] += 1
-                    if match.tournament_token:
-                        stats_by_player[p2]['championships'].add(match.tournament_token)
                 elif match.score2 < match.score1:
                     stats_by_player[p2]['losses'] += 1
         
@@ -1964,8 +1969,7 @@ def generate_excel_report(matches, filename):
                 'Derrotas': stats['losses'],
                 'Gols Marcados': stats['goals_for'],
                 'Gols Sofridos': stats['goals_against'],
-                'Saldo': stats['goals_for'] - stats['goals_against'],
-                'Campeonatos': ', '.join(sorted(stats['championships'])) if stats['championships'] else '-'
+                'Saldo': stats['goals_for'] - stats['goals_against']
             })
         
         if stats_data:
