@@ -36,6 +36,9 @@ else:
     # Corrigir URL do Heroku/Render (postgres:// -> postgresql://)
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    # Suporte CockroachDB
+    if DATABASE_URL.startswith('postgresql://') and 'cockroachlabs' in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace('postgresql://', 'cockroachdb+psycopg2://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
     logger.info(f"✅ PostgreSQL configurado: {DATABASE_URL[:30]}...")
 
@@ -243,6 +246,7 @@ def init_db():
     """Inicializa o banco de dados"""
     with app.app_context():
         try:
+            db.drop_all()
             db.create_all()
             logger.info("✅ Banco de dados inicializado")
         except Exception as e:
