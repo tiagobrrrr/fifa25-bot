@@ -36,11 +36,16 @@ class FIFA25Scraper:
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': self.BASE_URL,
-            'Origin': self.BASE_URL
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate',
+            'Referer': self.BASE_URL + '/',
+            'Origin': self.BASE_URL,
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
         })
         logger.info("✅ FIFA25Scraper inicializado")
     
@@ -50,7 +55,14 @@ class FIFA25Scraper:
             url = f"{self.BASE_URL}{endpoint}"
             logger.debug(f"📡 Requisição: {url}")
             
-            response = self.session.get(url, params=params, timeout=10)
+            response = self.session.get(url, params=params, timeout=15)
+            if response.status_code == 403:
+                server = response.headers.get('Server', '?')
+                cf_ray = response.headers.get('CF-RAY')
+                snippet = response.text[:200].replace('\n', ' ')
+                logger.error(
+                    f"🚫 403 em {endpoint} | Server={server} | CF-RAY={cf_ray} | corpo: {snippet}"
+                )
             response.raise_for_status()
             
             data = response.json()

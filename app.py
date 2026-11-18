@@ -246,7 +246,6 @@ def init_db():
     """Inicializa o banco de dados"""
     with app.app_context():
         try:
-            db.drop_all()
             db.create_all()
             logger.info("✅ Banco de dados inicializado")
         except Exception as e:
