@@ -3,6 +3,7 @@ FIFA 25 Web Scraper - ESportsBattle
 Scraper atualizado com os novos endpoints da API
 """
 
+import time
 import requests
 import logging
 from datetime import datetime
@@ -35,22 +36,25 @@ class FIFA25Scraper:
     
     def __init__(self):
         self.session = requests.Session()
+        # Identificação honesta do bot (sem imitar navegador)
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            'User-Agent': 'fifa25-bot/1.0 (personal stats project; +https://github.com/tiagobrrrr/fifa25-bot)',
+            'Accept': 'application/json',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
             'Accept-Encoding': 'gzip, deflate',
-            'Referer': self.BASE_URL + '/',
-            'Origin': self.BASE_URL,
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
         })
+        # Pausa as requisições quando o site bloqueia (evita insistir a cada 30s)
+        self._blocked_until = 0.0
+        self.BLOCK_PAUSE_SECONDS = 600  # 10 minutos
         logger.info("✅ FIFA25Scraper inicializado")
     
     def _make_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
         """Faz uma requisição GET para a API"""
+        # Se o site bloqueou recentemente, não insiste durante a pausa
+        if time.time() < self._blocked_until:
+            logger.debug(f"⏸️ Em pausa após bloqueio, ignorando {endpoint}")
+            return None
+
         try:
             url = f"{self.BASE_URL}{endpoint}"
             logger.debug(f"📡 Requisição: {url}")
@@ -62,6 +66,10 @@ class FIFA25Scraper:
                 snippet = response.text[:200].replace('\n', ' ')
                 logger.error(
                     f"🚫 403 em {endpoint} | Server={server} | CF-RAY={cf_ray} | corpo: {snippet}"
+                )
+                self._blocked_until = time.time() + self.BLOCK_PAUSE_SECONDS
+                logger.warning(
+                    f"⏸️ Requisições pausadas por {self.BLOCK_PAUSE_SECONDS // 60} minutos após o bloqueio"
                 )
             response.raise_for_status()
             
