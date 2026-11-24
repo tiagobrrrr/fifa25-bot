@@ -56,6 +56,8 @@ def admin_required(f):
             return jsonify({'success': False, 'error': 'Não autorizado'}), 401
         return f(*args, **kwargs)
     return wrapper
+
+
 # Configuração do banco de dados
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
@@ -67,7 +69,13 @@ else:
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-    logger.info(f"✅ PostgreSQL configurado: {DATABASE_URL[:30]}...")
+    # Nunca registrar usuário, senha ou a URL completa: só servidor e nome do banco
+    try:
+        from sqlalchemy.engine import make_url
+        _db_url = make_url(DATABASE_URL)
+        logger.info(f"✅ Banco configurado: servidor={_db_url.host} banco={_db_url.database}")
+    except Exception:
+        logger.info("✅ Banco configurado (URL não exibida por segurança)")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
