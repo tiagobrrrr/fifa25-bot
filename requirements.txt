@@ -35,4 +35,3 @@ packaging==23.2
 greenlet==3.0.1
 typing_extensions==4.8.0
 tzlocal==5.2
-sqlalchemy-cockroachdb==2.0.2

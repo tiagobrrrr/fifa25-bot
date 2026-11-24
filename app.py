@@ -4,7 +4,10 @@ Monitoramento de partidas do ESportsBattle
 """
 
 import os
+import hmac
+import secrets
 import logging
+from functools import wraps
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import pytz
@@ -25,7 +28,34 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configurações
-app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key-change-in-production')
+_session_secret = os.environ.get('SESSION_SECRET')
+if not _session_secret:
+    # Sem valor fixo e público: gera uma chave aleatória a cada início.
+    # Defina SESSION_SECRET no Render para manter sessões entre reinícios.
+    _session_secret = secrets.token_hex(32)
+    logger.warning("⚠️ SESSION_SECRET não definida: usando chave aleatória temporária")
+app.config['SECRET_KEY'] = _session_secret
+
+# Chave de acesso para rotas administrativas (/api/force-scan, /api/send-report)
+ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
+
+
+def admin_required(f):
+    """Exige ADMIN_TOKEN (header X-Admin-Token, Bearer ou ?token=) na rota."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not ADMIN_TOKEN:
+            return jsonify({'success': False, 'error': 'Rota desativada: ADMIN_TOKEN não configurado'}), 503
+        provided = (
+            request.headers.get('X-Admin-Token')
+            or request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+            or request.args.get('token', '')
+        )
+        if not hmac.compare_digest(provided.encode('utf-8'), ADMIN_TOKEN.encode('utf-8')):
+            logger.warning(f"🚫 Acesso negado a {request.path} (token inválido)")
+            return jsonify({'success': False, 'error': 'Não autorizado'}), 401
+        return f(*args, **kwargs)
+    return wrapper
 # Configuração do banco de dados
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
@@ -36,9 +66,6 @@ else:
     # Corrigir URL do Heroku/Render (postgres:// -> postgresql://)
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-    # Suporte CockroachDB
-    if DATABASE_URL.startswith('postgresql://') and 'cockroachlabs' in DATABASE_URL:
-        DATABASE_URL = DATABASE_URL.replace('postgresql://', 'cockroachdb+psycopg2://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
     logger.info(f"✅ PostgreSQL configurado: {DATABASE_URL[:30]}...")
 
@@ -992,6 +1019,7 @@ def api_recent_matches():
 
 
 @app.route('/api/force-scan')
+@admin_required
 def api_force_scan():
     """Força uma varredura imediata"""
     try:
@@ -1002,6 +1030,7 @@ def api_force_scan():
 
 
 @app.route('/api/send-report')
+@admin_required
 def api_send_report():
     """Força envio de relatório semanal (para testes)"""
     try:
@@ -1632,37 +1661,6 @@ def history_recent():
                              player_filter='',
                              team_filter='',
                              error=str(e))
-
-
-@app.route('/statistics/test')
-def statistics_test():
-    """Teste de estatísticas - retorna JSON para debug"""
-    try:
-        logger.info("📊 TEST: Iniciando teste de estatísticas...")
-        
-        # Buscar partidas
-        finished_matches = Match.query.filter_by(status_id=3).limit(10).all()
-        logger.info(f"📊 TEST: {len(finished_matches)} partidas encontradas")
-        
-        result = {
-            'total_matches': len(finished_matches),
-            'samples': []
-        }
-        
-        for match in finished_matches[:5]:
-            result['samples'].append({
-                'id': match.match_id,
-                'player1': match.player1_nickname,
-                'player2': match.player2_nickname,
-                'score1': match.score1,
-                'score2': match.score2,
-                'stadium': match.location_name
-            })
-        
-        return result
-        
-    except Exception as e:
-        return {'error': str(e)}, 500
 
 
 @app.route('/statistics')
